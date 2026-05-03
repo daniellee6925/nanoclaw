@@ -10,7 +10,11 @@
  * The host re-validates on the delivery side against the central DB,
  * so even if this table is stale the host's enforcement is authoritative.
  */
+import * as fs from 'fs';
+
 import { getInboundDb } from './db/connection.js';
+
+const IDENTITY_FILE = '/workspace/agent/CLAUDE.local.md';
 
 export interface DestinationEntry {
   name: string;
@@ -75,14 +79,34 @@ export function findByRouting(
 /**
  * Generate the system-prompt addendum: agent identity + destination map.
  *
- * Identity is injected here (not in the shared CLAUDE.md) because it's
- * per-agent-group and changes when the operator renames an agent, while
- * the shared base is identical across all agents.
+ * If `CLAUDE.local.md` is non-empty, its content is the identity block —
+ * placed at system-prompt salience so behavioral rules override the
+ * helpful-assistant default rather than losing to it as project-memory
+ * background context. The auto-generated "Your name is X" is skipped in
+ * that case to avoid conflicting with user-authored identity (e.g. dual
+ * Korean/English names where the auto block would force one).
+ *
+ * When `CLAUDE.local.md` is empty (the composer's default for groups
+ * without custom identity), the auto block is used.
  */
 export function buildSystemPromptAddendum(assistantName?: string): string {
   const sections: string[] = [];
 
-  if (assistantName) {
+  let customIdentity = '';
+  try {
+    customIdentity = fs.readFileSync(IDENTITY_FILE, 'utf-8').trim();
+  } catch (err) {
+    // ENOENT is the intended fallback (no per-group identity → use auto block).
+    // Any other error means the file exists but can't be read — surface it so
+    // the operator knows why their identity isn't loading.
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+      console.error(`[destinations] Failed to read ${IDENTITY_FILE}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  if (customIdentity) {
+    sections.push(customIdentity);
+  } else if (assistantName) {
     sections.push(['# You are ' + assistantName, '', `Your name is **${assistantName}**. Use it when the channel asks who you are, when introducing yourself, and when signing any message that explicitly calls for a signature.`].join('\n'));
   }
 
