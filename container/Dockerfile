@@ -49,6 +49,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         ca-certificates \
         curl \
         git \
+        openssh-client \
         tini \
         unzip \
     && if [ "$INSTALL_CJK_FONTS" = "true" ]; then \
@@ -112,6 +113,15 @@ RUN chmod +x /app/entrypoint.sh
 RUN mkdir -p /workspace/group /workspace/extra && \
     chown -R node:node /workspace && \
     chmod 777 /home/node
+
+# Synthetic /etc/passwd entry for uid 501 (default first-user uid on macOS).
+# nanoclaw bind-mounts host-owned files into the container with the host uid
+# preserved, so the container process runs as the host's uid (501 on macOS
+# hosts), not as `node` (1000). Without a passwd entry, ssh refuses to operate
+# (getpwuid returns null → no HOME resolution → "No user exists for uid 501"
+# → push fails). HOME is /tmp because /home/node belongs to a different uid.
+# For non-macOS hosts with different uids, extend this line accordingly.
+RUN getent passwd 501 > /dev/null || echo 'agent:x:501:20::/tmp:/bin/bash' >> /etc/passwd
 
 USER node
 WORKDIR /workspace/group
