@@ -21,12 +21,16 @@ groups/*
 **/.claude-fragments/
 
 # Telos identity files — version-controlled override of nanoclaw's per-installation defaults.
-# soul.md and CLAUDE.local.md for the telos group are tracked because they encode
-# the agent's identity, not transient runtime state.
+# soul.md, CLAUDE.local.md, tick-prompt.md, and the tools/ MCP server for the telos
+# group are tracked because they encode the agent's identity and abilities, not
+# transient runtime state. container.json stays per-installation.
 !groups/telos/
 groups/telos/*
 !groups/telos/soul.md
 !groups/telos/CLAUDE.local.md
+!groups/telos/tick-prompt.md
+!groups/telos/tools/
+!groups/telos/tools/**
 
 # Secrets
 *.keys.json
