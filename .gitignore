@@ -29,6 +29,7 @@ groups/telos/*
 !groups/telos/soul.md
 !groups/telos/CLAUDE.local.md
 !groups/telos/tick-prompt.md
+!groups/telos/reflect-prompt.md
 !groups/telos/tools/
 !groups/telos/tools/**
 

@@ -1,19 +1,27 @@
 /**
  * Telos-Constantia MCP server.
  *
- * Hand-rolled stdio JSON-RPC (no @modelcontextprotocol/sdk dep) — keeps the
- * surface area tiny and avoids npm install at container spawn. Three tools:
+ * Hand-rolled stdio JSON-RPC (no @modelcontextprotocol/sdk dep). Five tools:
  *
- *   - assign_task    create tasks/TASK-NNN.md, commit, push
- *   - grade_task     update tasks/TASK-NNN.md to terminal state, commit, push
- *   - do_nothing     append no-op section to today's tick log, commit, push
+ *   - assign_task             create tasks/TASK-NNN.md, commit, push
+ *   - accept_proposal         flip proposed→assigned, commit, push
+ *   - grade_task              update tasks/TASK-NNN.md to terminal state, commit, push
+ *   - do_nothing              log no-op section to today's tick log, commit, push
+ *   - write_reflection        nightly synthesized reflection log, commit, push
+ *   - read_today_transcript   read user/agent DM transcript from session dbs
+ *
+ * Action tools (assign_task / grade_task / accept_proposal / do_nothing) all
+ * append a section to today's `log/telos/YYYY-MM-DD-tick.md` so the daily trail
+ * is symmetric. write_reflection lands at `log/telos/YYYY-MM-DD-reflection.md`.
  *
  * Push failures DO NOT fail the tool — the file write + commit is durable
  * state. The tool returns `pushed: false` so Telos can mention it in its
  * response and Daniel can manually `git push` to recover.
  *
- * Constantia path is hardcoded (`/workspace/extra/constantia`). Single repo,
- * no need for env-var configurability.
+ * Constantia path is hardcoded (`/workspace/extra/constantia`). Single repo.
+ * Session db dir is hardcoded (`/workspace/extra/telos-session`) — mounted
+ * read-only by container.json so read_today_transcript can read the agent's
+ * own message history.
  *
  * Git auth uses the constantia-deploy-key bind-mounted at
  * `/workspace/extra/ssh-key/constantia-deploy-key`. GIT_SSH_COMMAND is set
@@ -21,10 +29,14 @@
  */
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+// @ts-expect-error bun:sqlite is provided by the Bun runtime
+import { Database } from 'bun:sqlite';
 
 const CONSTANTIA_PATH = '/workspace/extra/constantia';
 const TASKS_DIR = path.join(CONSTANTIA_PATH, 'tasks');
 const LOG_DIR = path.join(CONSTANTIA_PATH, 'log');
+const TELOS_LOG_DIR = path.join(LOG_DIR, 'telos');
+const SESSION_DIR = '/workspace/extra/telos-session';
 const TIMEZONE = 'America/Los_Angeles';
 
 // ---- Helpers ----------------------------------------------------------------
@@ -217,6 +229,11 @@ async function assignTask(args: AssignTaskArgs): Promise<ToolResponse> {
   await writeAtomic(filePath, serializeFrontmatter(fm) + body);
 
   const headline = args.purpose.split('\n')[0].slice(0, 60);
+  await appendTickLogSection(
+    'assign_task',
+    `**Pillar:** ${args.pillar}\n**Purpose:** ${headline}\n**Acceptance:** ${args.acceptance.split('\n')[0].slice(0, 100)}`,
+    id,
+  );
   const result = await commitAndPush(`task(assign): ${id} — ${headline}`);
   return ok(formatResult(`Created ${id} (pillar ${args.pillar})`, result));
 }
@@ -274,9 +291,76 @@ async function gradeTask(args: GradeTaskArgs): Promise<ToolResponse> {
     args.outcome === 'graded'
       ? args.grade!
       : args.rejection_reason!.split('\n')[0].slice(0, 50);
+  const logBody =
+    args.outcome === 'graded'
+      ? `**Outcome:** graded ${args.grade}\n**Evidence:** ${args.grade_evidence!.split('\n')[0].slice(0, 200)}`
+      : `**Outcome:** rejected\n**Reason:** ${args.rejection_reason!.split('\n')[0].slice(0, 200)}`;
+  await appendTickLogSection(`grade_task (${args.outcome})`, logBody, args.task_id);
   const result = await commitAndPush(`task(${args.outcome}): ${args.task_id} — ${summary}`);
   const headline = `${args.task_id} ${args.outcome}${args.outcome === 'graded' ? ` (${args.grade})` : ''}`;
   return ok(formatResult(headline, result));
+}
+
+interface AcceptProposalArgs {
+  task_id: string;
+  pillar?: number;
+  purpose?: string;
+  acceptance?: string;
+  context_addition?: string;
+}
+
+async function acceptProposal(args: AcceptProposalArgs): Promise<ToolResponse> {
+  if (!/^TASK-\d{3}$/.test(args.task_id)) return err('task_id must match TASK-NNN');
+
+  const filePath = path.join(TASKS_DIR, `${args.task_id}.md`);
+  let content: string;
+  try {
+    content = await fs.readFile(filePath, 'utf-8');
+  } catch {
+    return err(`Task ${args.task_id} not found at ${filePath}`);
+  }
+
+  const { fm, body } = parseFrontmatter(content);
+  if (fm.status !== 'proposed') {
+    return err(
+      `Task ${args.task_id} is in status "${fm.status}", not "proposed". Use grade_task to change a non-proposed state.`,
+    );
+  }
+
+  if (args.pillar !== undefined) {
+    if (![1, 2, 3].includes(args.pillar)) return err('pillar must be 1, 2, or 3');
+    fm.pillar = String(args.pillar);
+  }
+  if (args.purpose !== undefined) {
+    if (args.purpose.length < 10) return err('purpose must be ≥10 chars');
+    fm.purpose = args.purpose;
+  }
+  if (args.acceptance !== undefined) {
+    if (args.acceptance.length < 10) return err('acceptance must be ≥10 chars');
+    fm.acceptance = args.acceptance;
+  }
+
+  const { date } = nowPT();
+  fm.status = 'assigned';
+  fm.assigned = date;
+  fm.assigned_by = 'telos';
+  // Preserve proposed_by — that's history.
+
+  let newBody = body;
+  if (args.context_addition && args.context_addition.length > 0) {
+    newBody = body.trimEnd() + `\n\n## Accepted by Telos (${date})\n\n${args.context_addition}\n`;
+  }
+
+  await writeAtomic(filePath, serializeFrontmatter(fm) + newBody);
+
+  const headline = (fm.purpose ?? '').split('\n')[0].slice(0, 60);
+  await appendTickLogSection(
+    'accept_proposal',
+    `**Pillar:** ${fm.pillar}\n**Purpose:** ${headline}${args.context_addition ? `\n**Note:** ${args.context_addition.split('\n')[0].slice(0, 200)}` : ''}`,
+    args.task_id,
+  );
+  const result = await commitAndPush(`task(accept): ${args.task_id} — ${headline}`);
+  return ok(formatResult(`Accepted ${args.task_id} (pillar ${fm.pillar})`, result));
 }
 
 interface DoNothingArgs {
@@ -284,11 +368,17 @@ interface DoNothingArgs {
   next_check?: string;
 }
 
-async function doNothing(args: DoNothingArgs): Promise<ToolResponse> {
-  if (!args.reason || args.reason.length < 20) return err('reason must be ≥20 chars');
-
+// Append a section to today's tick log (`log/telos/YYYY-MM-DD-tick.md`).
+// Called by every action tool (assign_task / grade_task / accept_proposal /
+// do_nothing) so the daily trail is symmetric — actions don't leave less
+// trace than no-ops. Creates the file with frontmatter if missing.
+async function appendTickLogSection(
+  action: string,
+  body: string,
+  taskId?: string,
+): Promise<void> {
   const { date, time } = nowPT();
-  const filePath = path.join(LOG_DIR, `${date}-telos-tick.md`);
+  const filePath = path.join(TELOS_LOG_DIR, `${date}-tick.md`);
 
   let existing = '';
   try {
@@ -298,6 +388,7 @@ async function doNothing(args: DoNothingArgs): Promise<ToolResponse> {
     // read error (permissions, IO failure) means the file IS there but
     // unreadable; silently overwriting would destroy existing entries.
     if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+    await fs.mkdir(TELOS_LOG_DIR, { recursive: true });
     const fm: Frontmatter = {
       date,
       author: 'telos',
@@ -308,12 +399,215 @@ async function doNothing(args: DoNothingArgs): Promise<ToolResponse> {
     existing = serializeFrontmatter(fm) + '\n\n';
   }
 
-  const section = `## Tick ${time} PT — no-op\n\n**Reason:** ${args.reason}\n\n**Next check:** ${args.next_check ?? '—'}\n\n`;
+  const taskLine = taskId ? `**Task:** ${taskId}\n` : '';
+  const section = `## Tick ${time} PT — ${action}\n\n${taskLine}${body}\n\n`;
   await writeAtomic(filePath, existing + section);
+}
 
+async function doNothing(args: DoNothingArgs): Promise<ToolResponse> {
+  if (!args.reason || args.reason.length < 20) return err('reason must be ≥20 chars');
+
+  const body = `**Reason:** ${args.reason}\n\n**Next check:** ${args.next_check ?? '—'}`;
+  await appendTickLogSection('no-op', body);
+
+  const { date, time } = nowPT();
   const headline = args.reason.split('\n')[0].slice(0, 60);
   const result = await commitAndPush(`tick(no-op): ${headline}`);
-  return ok(formatResult(`Logged no-op tick at ${time}\nLog: log/${date}-telos-tick.md`, result));
+  return ok(formatResult(`Logged no-op tick at ${time}\nLog: log/telos/${date}-tick.md`, result));
+}
+
+interface WriteReflectionArgs {
+  what_happened: string;
+  key_decisions: string;
+  patterns_observed: string;
+  what_daniel_should_take_away: string;
+  what_telos_should_change: string;
+  evidence_candidates: string;
+  open_threads: string;
+  next_priorities: string;
+  tasks_progressed?: string[];
+  tasks_proposed?: string[];
+}
+
+const REFLECTION_FIELDS = [
+  'what_happened',
+  'key_decisions',
+  'patterns_observed',
+  'what_daniel_should_take_away',
+  'what_telos_should_change',
+  'evidence_candidates',
+  'open_threads',
+  'next_priorities',
+] as const;
+
+const REFLECTION_HEADINGS: Record<typeof REFLECTION_FIELDS[number], string> = {
+  what_happened: 'What happened',
+  key_decisions: 'Key decisions',
+  patterns_observed: 'Patterns observed',
+  what_daniel_should_take_away: 'What Daniel should take away',
+  what_telos_should_change: 'What Telos should change',
+  evidence_candidates: 'Evidence candidates',
+  open_threads: 'Open threads',
+  next_priorities: 'Next-tick priorities',
+};
+
+async function writeReflection(args: WriteReflectionArgs): Promise<ToolResponse> {
+  for (const f of REFLECTION_FIELDS) {
+    const v = args[f];
+    if (typeof v !== 'string' || v.length < 10) {
+      return err(`${f} must be a string ≥10 chars`);
+    }
+  }
+
+  const { date } = nowPT();
+  const filePath = path.join(TELOS_LOG_DIR, `${date}-reflection.md`);
+
+  // Refuse to silently overwrite an existing reflection — if today's
+  // reflection already exists, the operator should rename or delete it
+  // before re-running. Avoids cron double-fire wiping the first run.
+  try {
+    await fs.access(filePath);
+    return err(
+      `Reflection already exists for ${date} at log/telos/${date}-reflection.md. Delete or rename the existing file before re-running.`,
+    );
+  } catch {
+    // Not present — good, proceed.
+  }
+
+  const fm: Frontmatter = {
+    date,
+    author: 'telos',
+    session_project: 'reflection',
+    tasks_progressed: JSON.stringify(args.tasks_progressed ?? []),
+    tasks_proposed: JSON.stringify(args.tasks_proposed ?? []),
+  };
+
+  const sections = REFLECTION_FIELDS.map(
+    (f) => `## ${REFLECTION_HEADINGS[f]}\n\n${args[f]}\n`,
+  ).join('\n');
+  const body = `\n\n${sections}`;
+
+  await fs.mkdir(TELOS_LOG_DIR, { recursive: true });
+  await writeAtomic(filePath, serializeFrontmatter(fm) + body);
+
+  const result = await commitAndPush(`reflection: ${date}`);
+  return ok(formatResult(`Wrote reflection for ${date}\nLog: log/telos/${date}-reflection.md`, result));
+}
+
+interface ReadTranscriptArgs {
+  date?: string;
+}
+
+interface DBRow {
+  timestamp: string;
+  kind: string;
+  content: string;
+}
+
+interface ParsedMsg {
+  direction: 'in' | 'out';
+  timestamp: string;
+  text: string;
+}
+
+function ptDateOf(utcIso: string): string {
+  const d = new Date(utcIso);
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  return fmt.format(d);
+}
+
+function extractText(jsonContent: string): string {
+  try {
+    const parsed = JSON.parse(jsonContent);
+    if (typeof parsed?.text === 'string') return parsed.text;
+    if (typeof parsed === 'string') return parsed;
+    return JSON.stringify(parsed).slice(0, 500);
+  } catch {
+    return jsonContent.slice(0, 500);
+  }
+}
+
+function shiftDate(yyyymmdd: string, days: number): string {
+  const d = new Date(`${yyyymmdd}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+async function readTodayTranscript(args: ReadTranscriptArgs): Promise<ToolResponse> {
+  const date = args.date ?? nowPT().date;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return err('date must be YYYY-MM-DD');
+
+  const inboundPath = path.join(SESSION_DIR, 'inbound.db');
+  const outboundPath = path.join(SESSION_DIR, 'outbound.db');
+  try {
+    await fs.access(inboundPath);
+    await fs.access(outboundPath);
+  } catch {
+    return err(
+      `Session DBs not found at ${SESSION_DIR}. Mount may not be configured — check container.json additionalMounts.`,
+    );
+  }
+
+  // Query a UTC window wider than the PT day, then filter to PT date in code
+  // (handles PDT/PST offset cleanly without hardcoding).
+  const windowStart = `${shiftDate(date, -1)}T12:00:00.000Z`;
+  const windowEnd = `${shiftDate(date, 1)}T12:00:00.000Z`;
+
+  let inbound: any;
+  let outbound: any;
+  try {
+    inbound = new Database(inboundPath, { readonly: true });
+    outbound = new Database(outboundPath, { readonly: true });
+  } catch (e) {
+    return err(`Failed to open session DBs: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  try {
+    const inboundRows = inbound
+      .query<DBRow, [string, string]>(
+        `SELECT timestamp, kind, content FROM messages_in
+         WHERE kind = 'chat-sdk' AND timestamp >= ? AND timestamp < ?
+         ORDER BY timestamp ASC`,
+      )
+      .all(windowStart, windowEnd);
+
+    const outboundRows = outbound
+      .query<DBRow, [string, string]>(
+        `SELECT timestamp, kind, content FROM messages_out
+         WHERE timestamp >= ? AND timestamp < ?
+         ORDER BY timestamp ASC`,
+      )
+      .all(windowStart, windowEnd);
+
+    const messages: ParsedMsg[] = [];
+    for (const r of inboundRows) {
+      if (ptDateOf(r.timestamp) !== date) continue;
+      messages.push({ direction: 'in', timestamp: r.timestamp, text: extractText(r.content) });
+    }
+    for (const r of outboundRows) {
+      if (ptDateOf(r.timestamp) !== date) continue;
+      messages.push({ direction: 'out', timestamp: r.timestamp, text: extractText(r.content) });
+    }
+    messages.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+
+    if (messages.length === 0) {
+      return ok(`No transcript messages found for ${date} PT.`);
+    }
+
+    const lines = messages.map((m) => {
+      const speaker = m.direction === 'in' ? 'Daniel' : 'Telos';
+      return `[${m.timestamp}] ${speaker}: ${m.text}`;
+    });
+    return ok(`Transcript for ${date} PT (${messages.length} messages):\n\n${lines.join('\n')}`);
+  } finally {
+    inbound.close();
+    outbound.close();
+  }
 }
 
 function formatResult(headline: string, result: CommitResult): string {
@@ -385,6 +679,78 @@ const TOOLS = [
     },
   },
   {
+    name: 'accept_proposal',
+    description:
+      'Accept a Guya-proposed task — flips status from "proposed" to "assigned", sets assigned_by=telos and assigned=today. Optionally rewrite pillar/purpose/acceptance to make the task more rubric-anchored. Use during proposed-task triage when the proposal is pillar-aligned and the work is worth tracking. Reject vague or misaligned proposals via grade_task with outcome=rejected.',
+    inputSchema: {
+      type: 'object',
+      required: ['task_id'],
+      properties: {
+        task_id: { type: 'string', pattern: '^TASK-\\d{3}$', description: 'e.g. TASK-005' },
+        pillar: {
+          type: 'integer',
+          enum: [1, 2, 3],
+          description: 'Optional override if Guya filed under the wrong pillar.',
+        },
+        purpose: {
+          type: 'string',
+          minLength: 10,
+          description: 'Optional rewrite — sharpen the rubric anchor.',
+        },
+        acceptance: {
+          type: 'string',
+          minLength: 10,
+          description: 'Optional rewrite — make the criterion verifiable by artifact.',
+        },
+        context_addition: {
+          type: 'string',
+          description: 'Optional appended note explaining why you accepted (or what you tightened).',
+        },
+      },
+    },
+  },
+  {
+    name: 'write_reflection',
+    description:
+      "Write today's nightly reflection to log/telos/YYYY-MM-DD-reflection.md. Eight required sections: what_happened, key_decisions, patterns_observed, what_daniel_should_take_away, what_telos_should_change, evidence_candidates, open_threads, next_priorities. All ≥10 chars; if a section has nothing to say, say that explicitly (e.g., 'No patterns crossed threshold today.'). Refuses to overwrite an existing reflection for the same day. Use only from the nightly reflection prompt — not from action ticks.",
+    inputSchema: {
+      type: 'object',
+      required: [
+        'what_happened',
+        'key_decisions',
+        'patterns_observed',
+        'what_daniel_should_take_away',
+        'what_telos_should_change',
+        'evidence_candidates',
+        'open_threads',
+        'next_priorities',
+      ],
+      properties: {
+        what_happened: { type: 'string', minLength: 10, description: 'Factual narrative — ticks fired, tasks moved, shape of the day. Not interpretive.' },
+        key_decisions: { type: 'string', minLength: 10, description: 'Decisions made today with reasoning (which proposals you accepted/rejected and why).' },
+        patterns_observed: { type: 'string', minLength: 10, description: 'Recurring behavior, pillar-tagged. Apply goal.md threshold (3-in-2-weeks active, 2-week absence). Say "none crossed threshold" if true.' },
+        what_daniel_should_take_away: { type: 'string', minLength: 10, description: 'Direct, specific observations about Daniel — growth signals, behavior patterns. No generic praise.' },
+        what_telos_should_change: { type: 'string', minLength: 10, description: 'Self-accountability — where you miscalibrated today, voice slips, judgment errors, missed signals. Two-sided: not just observing Daniel, also yourself.' },
+        evidence_candidates: { type: 'string', minLength: 10, description: 'Observations that may become formal evidence claims later. Flag, do not assert. Say "none" if true.' },
+        open_threads: { type: 'string', minLength: 10, description: 'Unresolved items — stale tasks, deferred decisions, things Daniel raised that did not get answered.' },
+        next_priorities: { type: 'string', minLength: 10, description: "What the 9am tick should focus on tomorrow." },
+        tasks_progressed: { type: 'array', items: { type: 'string' }, description: 'Optional. Task IDs that moved status today.' },
+        tasks_proposed: { type: 'array', items: { type: 'string' }, description: 'Optional. Task IDs proposed/created today.' },
+      },
+    },
+  },
+  {
+    name: 'read_today_transcript',
+    description:
+      "Read your DM transcript with Daniel for a given PT day. Returns merged inbound/outbound messages sorted by timestamp. Use at the start of the nightly reflection to ground in actual conversation, not just what you wrote down. Read-only, no commit, no push. Returns empty if no messages that day.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        date: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$', description: 'Optional PT date YYYY-MM-DD. Defaults to today PT.' },
+      },
+    },
+  },
+  {
     name: 'do_nothing',
     description:
       "Log an explicit no-op tick decision. Appends a timestamped section to today's log/YYYY-MM-DD-telos-tick.md (creates if missing). Use when state is healthy and no action is the highest-leverage choice. This is the default tick decision — action without reason is noise.",
@@ -410,6 +776,9 @@ const TOOLS = [
 const HANDLERS: Record<string, (args: any) => Promise<ToolResponse>> = {
   assign_task: assignTask,
   grade_task: gradeTask,
+  accept_proposal: acceptProposal,
+  write_reflection: writeReflection,
+  read_today_transcript: readTodayTranscript,
   do_nothing: doNothing,
 };
 
