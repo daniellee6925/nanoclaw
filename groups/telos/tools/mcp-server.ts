@@ -196,14 +196,20 @@ function err(text: string): ToolResponse {
 }
 
 interface AssignTaskArgs {
-  pillar: number;
+  pillar: number | 'none';
+  priority: 'P1' | 'P2' | 'P3';
   purpose: string;
   acceptance: string;
   context: string;
 }
 
 async function assignTask(args: AssignTaskArgs): Promise<ToolResponse> {
-  if (![1, 2, 3].includes(args.pillar)) return err('pillar must be 1, 2, or 3');
+  if (args.pillar !== 'none' && ![1, 2, 3].includes(args.pillar as number)) {
+    return err('pillar must be 1, 2, 3, or "none"');
+  }
+  if (!['P1', 'P2', 'P3'].includes(args.priority)) {
+    return err('priority must be P1, P2, or P3');
+  }
   if (!args.purpose || args.purpose.length < 10) return err('purpose must be ≥10 chars');
   if (!args.acceptance || args.acceptance.length < 10) return err('acceptance must be ≥10 chars');
 
@@ -214,6 +220,7 @@ async function assignTask(args: AssignTaskArgs): Promise<ToolResponse> {
     id,
     status: 'assigned',
     pillar: String(args.pillar),
+    priority: args.priority,
     assigned: date,
     assigned_by: 'telos',
     proposed_by: 'telos',
@@ -231,11 +238,11 @@ async function assignTask(args: AssignTaskArgs): Promise<ToolResponse> {
   const headline = args.purpose.split('\n')[0].slice(0, 60);
   await appendTickLogSection(
     'assign_task',
-    `**Pillar:** ${args.pillar}\n**Purpose:** ${headline}\n**Acceptance:** ${args.acceptance.split('\n')[0].slice(0, 100)}`,
+    `**Pillar:** ${args.pillar}\n**Priority:** ${args.priority}\n**Purpose:** ${headline}\n**Acceptance:** ${args.acceptance.split('\n')[0].slice(0, 100)}`,
     id,
   );
   const result = await commitAndPush(`task(assign): ${id} — ${headline}`);
-  return ok(formatResult(`Created ${id} (pillar ${args.pillar})`, result));
+  return ok(formatResult(`Created ${id} (pillar ${args.pillar}, ${args.priority})`, result));
 }
 
 interface GradeTaskArgs {
@@ -303,7 +310,8 @@ async function gradeTask(args: GradeTaskArgs): Promise<ToolResponse> {
 
 interface AcceptProposalArgs {
   task_id: string;
-  pillar?: number;
+  priority: 'P1' | 'P2' | 'P3';
+  pillar?: number | 'none';
   purpose?: string;
   acceptance?: string;
   context_addition?: string;
@@ -311,6 +319,9 @@ interface AcceptProposalArgs {
 
 async function acceptProposal(args: AcceptProposalArgs): Promise<ToolResponse> {
   if (!/^TASK-\d{3}$/.test(args.task_id)) return err('task_id must match TASK-NNN');
+  if (!['P1', 'P2', 'P3'].includes(args.priority)) {
+    return err('priority must be P1, P2, or P3 (T → P conversion is unbound — pick fresh based on portfolio)');
+  }
 
   const filePath = path.join(TASKS_DIR, `${args.task_id}.md`);
   let content: string;
@@ -328,7 +339,9 @@ async function acceptProposal(args: AcceptProposalArgs): Promise<ToolResponse> {
   }
 
   if (args.pillar !== undefined) {
-    if (![1, 2, 3].includes(args.pillar)) return err('pillar must be 1, 2, or 3');
+    if (args.pillar !== 'none' && ![1, 2, 3].includes(args.pillar as number)) {
+      return err('pillar must be 1, 2, 3, or "none"');
+    }
     fm.pillar = String(args.pillar);
   }
   if (args.purpose !== undefined) {
@@ -342,6 +355,7 @@ async function acceptProposal(args: AcceptProposalArgs): Promise<ToolResponse> {
 
   const { date } = nowPT();
   fm.status = 'assigned';
+  fm.priority = args.priority;
   fm.assigned = date;
   fm.assigned_by = 'telos';
   // Preserve proposed_by — that's history.
@@ -356,11 +370,11 @@ async function acceptProposal(args: AcceptProposalArgs): Promise<ToolResponse> {
   const headline = (fm.purpose ?? '').split('\n')[0].slice(0, 60);
   await appendTickLogSection(
     'accept_proposal',
-    `**Pillar:** ${fm.pillar}\n**Purpose:** ${headline}${args.context_addition ? `\n**Note:** ${args.context_addition.split('\n')[0].slice(0, 200)}` : ''}`,
+    `**Pillar:** ${fm.pillar}\n**Priority:** ${args.priority}\n**Purpose:** ${headline}${args.context_addition ? `\n**Note:** ${args.context_addition.split('\n')[0].slice(0, 200)}` : ''}`,
     args.task_id,
   );
   const result = await commitAndPush(`task(accept): ${args.task_id} — ${headline}`);
-  return ok(formatResult(`Accepted ${args.task_id} (pillar ${fm.pillar})`, result));
+  return ok(formatResult(`Accepted ${args.task_id} (pillar ${fm.pillar}, ${args.priority})`, result));
 }
 
 interface DoNothingArgs {
@@ -622,20 +636,27 @@ const TOOLS = [
   {
     name: 'assign_task',
     description:
-      'Create a new task in Constantia (tasks/TASK-NNN.md) with structured frontmatter. Auto-increments NNN, validates pillar (1/2/3), commits, pushes. Use when the tick decision is to add new work for Daniel.',
+      'Create a new task in Constantia (tasks/TASK-NNN.md) with structured frontmatter. Auto-increments NNN, validates pillar (1/2/3/none) and priority (P1/P2/P3), commits, pushes. Use when the tick decision is to add new work for Daniel. At equal priority, pillar work wins over pillar=none.',
     inputSchema: {
       type: 'object',
-      required: ['pillar', 'purpose', 'acceptance', 'context'],
+      required: ['pillar', 'priority', 'purpose', 'acceptance', 'context'],
       properties: {
         pillar: {
-          type: 'integer',
-          enum: [1, 2, 3],
-          description: '1=LLM serving + inference, 2=Production agentic systems, 3=Eval methodology',
+          oneOf: [
+            { type: 'integer', enum: [1, 2, 3] },
+            { type: 'string', enum: ['none'] },
+          ],
+          description: '1=LLM serving + inference, 2=Production agentic systems, 3=Eval methodology, "none"=cross-cutting / non-growth work that still has to ship',
+        },
+        priority: {
+          type: 'string',
+          enum: ['P1', 'P2', 'P3'],
+          description: 'P1=next thing displaces standing work, P2=real work no urgency floor, P3=backburner only when blocked',
         },
         purpose: {
           type: 'string',
           minLength: 10,
-          description: 'Why this task — specific, ties to a pillar gap. Not generic.',
+          description: 'Why this task — specific, ties to a pillar gap (or names the cross-cutting need if pillar=none). Not generic.',
         },
         acceptance: {
           type: 'string',
@@ -681,21 +702,28 @@ const TOOLS = [
   {
     name: 'accept_proposal',
     description:
-      'Accept a Guya-proposed task — flips status from "proposed" to "assigned", sets assigned_by=telos and assigned=today. Optionally rewrite pillar/purpose/acceptance to make the task more rubric-anchored. Use during proposed-task triage when the proposal is pillar-aligned and the work is worth tracking. Reject vague or misaligned proposals via grade_task with outcome=rejected.',
+      'Accept a Guya-proposed task — flips status from "proposed" to "assigned", sets assigned_by=telos, assigned=today, and stamps priority (P1/P2/P3). Required: priority. T → P conversion is unbound — pick P fresh based on current portfolio, not the proposal\'s T value. Optionally rewrite pillar/purpose/acceptance to sharpen the task. Use during proposed-task triage when the proposal is worth tracking. For pillar=none proposals, the rubric criterion does not apply — accept on: concrete artifact-verifiable acceptance, not a duplicate, makes sense given Daniel\'s priorities. Reject vague or misaligned proposals via grade_task with outcome=rejected.',
     inputSchema: {
       type: 'object',
-      required: ['task_id'],
+      required: ['task_id', 'priority'],
       properties: {
         task_id: { type: 'string', pattern: '^TASK-\\d{3}$', description: 'e.g. TASK-005' },
+        priority: {
+          type: 'string',
+          enum: ['P1', 'P2', 'P3'],
+          description: 'P-tier stamp on accept. Pick fresh — the proposal\'s T value is a hint, not a contract. P1=next thing displaces standing work, P2=real work no urgency floor, P3=backburner only when blocked.',
+        },
         pillar: {
-          type: 'integer',
-          enum: [1, 2, 3],
-          description: 'Optional override if Guya filed under the wrong pillar.',
+          oneOf: [
+            { type: 'integer', enum: [1, 2, 3] },
+            { type: 'string', enum: ['none'] },
+          ],
+          description: 'Optional override if Guya filed under the wrong pillar (or to flip pillar↔none).',
         },
         purpose: {
           type: 'string',
           minLength: 10,
-          description: 'Optional rewrite — sharpen the rubric anchor.',
+          description: 'Optional rewrite — sharpen the rubric anchor (pillar 1/2/3) or the cross-cutting need (pillar=none).',
         },
         acceptance: {
           type: 'string',
