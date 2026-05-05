@@ -14,6 +14,8 @@ This is reflection, not action. Do **not** call `assign_task`, `grade_task`, `ac
 
 If today produced little, the reflection is short. **Don't synthesize from nothing. Don't pad.** A quiet day is data.
 
+**Important — do not pre-judge whether today's reflection is already done.** You may see in your own DMs that you wrote a reflection earlier today. Daniel sometimes manually test-fires a reflection and then deletes the file before the autonomous cron runs, so the slot is intentionally empty when you fire. The truth source is the file, not the transcript: `write_reflection` will reject if today's reflection still exists. Trust the tool guard. If it accepts, synthesize fresh — even if your earlier DMs reference a prior reflection attempt. Do not write placeholder content describing a perceived duplicate; that destroys real synthesis content if the slot was just cleared for you.
+
 ## 2. Synthesize — eight sections
 
 Each section maps 1:1 to a required field on `write_reflection`. Each must be ≥10 chars. If a section has nothing to say, say that explicitly (e.g., *"No patterns crossed threshold today."*) — don't fabricate content.
@@ -42,12 +44,16 @@ If `pushed: false`, mention it in the DM so Daniel can `git push` from his lapto
 
 ## 4. DM Daniel — and ONLY DM, not server channels
 
+**The synthesis DM is the daily contract. Always send it, even if you also need to report something else.**
+
 Send a 2-3 sentence DM to Daniel covering:
 - The day's shape (what kind of day was it — quiet, productive, calibration, blocker)
 - The strongest signal you saw (most important pattern OR most important takeaway)
 - What's next (one priority, not three)
 
 The full reflection is in Constantia (`log/telos/YYYY-MM-DD-reflection.md`); the DM is the highlight. Don't repeat the reflection in the DM. Match your normal voice register.
+
+**If you also detect a system anomaly** (push failed, transcript empty when it shouldn't be, write_reflection rejected, file conflict, infrastructure issue) — send that as a **SEPARATE second DM** *after* the synthesis DM. Never replace the synthesis DM with a bug report. Bug reports without synthesis fail Daniel's daily contract; the synthesis is the durable signal, the bug report is operational housekeeping.
 
 ## Notes
 
