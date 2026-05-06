@@ -15,6 +15,7 @@ import * as path from 'node:path';
 
 export const CONSTANTIA_PATH = '/workspace/extra/constantia';
 export const TASKS_DIR = path.join(CONSTANTIA_PATH, 'tasks');
+export const EVIDENCE_DIR = path.join(CONSTANTIA_PATH, 'evidence');
 export const LOG_DIR = path.join(CONSTANTIA_PATH, 'log');
 export const TELOS_LOG_DIR = path.join(LOG_DIR, 'telos');
 export const SESSION_DIR = '/workspace/extra/telos-session';
@@ -156,6 +157,16 @@ export async function nextTaskId(): Promise<string> {
     if (m) max = Math.max(max, parseInt(m[1], 10));
   }
   return `TASK-${String(max + 1).padStart(3, '0')}`;
+}
+
+export async function nextEvidenceId(): Promise<string> {
+  const files = await fs.readdir(EVIDENCE_DIR);
+  let max = 0;
+  for (const f of files) {
+    const m = f.match(/^EVD-(\d{3})\.md$/);
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  }
+  return `EVD-${String(max + 1).padStart(3, '0')}`;
 }
 
 // ---- Git -------------------------------------------------------------------

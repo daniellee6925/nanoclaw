@@ -1,18 +1,20 @@
 /**
  * Telos-Constantia MCP server.
  *
- * Hand-rolled stdio JSON-RPC (no @modelcontextprotocol/sdk dep). Six tools:
+ * Hand-rolled stdio JSON-RPC (no @modelcontextprotocol/sdk dep). Seven tools:
  *
  *   - assign_task             create tasks/TASK-NNN.md, commit, push
  *   - accept_proposal         flip proposed→assigned, commit, push
  *   - grade_task              update tasks/TASK-NNN.md to terminal state, commit, push
+ *   - write_evidence          create evidence/EVD-NNN.md (calibrated), commit, push
  *   - do_nothing              log no-op section to today's tick log, commit, push
  *   - write_reflection        nightly synthesized reflection log, commit, push
  *   - read_today_transcript   read user/agent DM transcript from session dbs
  *
- * Action tools (assign_task / grade_task / accept_proposal / do_nothing) all
- * append a section to today's `log/telos/YYYY-MM-DD-tick.md` so the daily trail
- * is symmetric. write_reflection lands at `log/telos/YYYY-MM-DD-reflection.md`.
+ * Action tools (assign_task / grade_task / accept_proposal / write_evidence /
+ * do_nothing) all append a section to today's `log/telos/YYYY-MM-DD-tick.md`
+ * so the daily trail is symmetric. write_reflection lands at
+ * `log/telos/YYYY-MM-DD-reflection.md`.
  *
  * Push failures DO NOT fail the tool — the file write + commit is durable
  * state. The tool returns `pushed: false` so Telos can mention it in its
@@ -37,6 +39,7 @@ import { Database } from 'bun:sqlite';
 
 import {
   CONSTANTIA_PATH,
+  EVIDENCE_DIR,
   TASKS_DIR,
   TELOS_LOG_DIR,
   SESSION_DIR,
@@ -44,6 +47,7 @@ import {
   err,
   extractText,
   formatResult,
+  nextEvidenceId,
   nextTaskId,
   nowPT,
   ok,
@@ -242,6 +246,65 @@ async function acceptProposal(args: AcceptProposalArgs): Promise<ToolResponse> {
   return ok(formatResult(`Accepted ${args.task_id} (pillar ${fm.pillar}, ${args.priority})`, result));
 }
 
+interface WriteEvidenceArgs {
+  category: 'strength' | 'weakness' | 'habit' | 'growth' | 'decision';
+  confidence: 'tentative' | 'medium' | 'high';
+  source: string;
+  observation: string;
+  assessment: string;
+}
+
+const EVIDENCE_CATEGORIES = ['strength', 'weakness', 'habit', 'growth', 'decision'] as const;
+const CONFIDENCE_LEVELS = ['tentative', 'medium', 'high'] as const;
+
+async function writeEvidence(args: WriteEvidenceArgs): Promise<ToolResponse> {
+  if (!EVIDENCE_CATEGORIES.includes(args.category)) {
+    return err(`category must be one of: ${EVIDENCE_CATEGORIES.join(', ')}`);
+  }
+  if (!CONFIDENCE_LEVELS.includes(args.confidence)) {
+    return err(`confidence must be one of: ${CONFIDENCE_LEVELS.join(', ')}`);
+  }
+  if (!args.source || args.source.length < 3) return err('source must be ≥3 chars');
+  if (!args.observation || args.observation.length < 10) return err('observation must be ≥10 chars');
+  if (!args.assessment || args.assessment.length < 10) return err('assessment must be ≥10 chars');
+
+  // Calibration rule: self-reported claims (especially Daniel's bootstrap
+  // habit/strength claims) cannot be high or medium confidence until validated
+  // by observation. Force tentative + flag ground_truth_pending so future
+  // queries can find unvalidated evidence.
+  if (args.source === 'self-report' && args.confidence !== 'tentative') {
+    return err(
+      "source='self-report' requires confidence='tentative' (calibration rule — self-report is hypothesis, not ground truth, until observed)",
+    );
+  }
+
+  const id = await nextEvidenceId();
+  const { date } = nowPT();
+
+  const fm: Frontmatter = {
+    id,
+    category: args.category,
+    date,
+    source: args.source,
+    confidence: args.confidence,
+  };
+  if (args.source === 'self-report') {
+    fm.ground_truth_pending = 'true';
+  }
+
+  const body = `\n\n## Observation\n\n${args.observation}\n\n## Assessment\n\n${args.assessment}\n`;
+  const filePath = path.join(EVIDENCE_DIR, `${id}.md`);
+  await writeAtomic(filePath, serializeFrontmatter(fm) + body);
+
+  const headline = args.observation.split('\n')[0].slice(0, 60);
+  await appendTickLogSection(
+    'write_evidence',
+    `**Evidence:** ${id}\n**Category:** ${args.category}\n**Source:** ${args.source}\n**Confidence:** ${args.confidence}${fm.ground_truth_pending ? ' (ground-truth-pending)' : ''}\n**Observation:** ${headline}`,
+  );
+  const result = await commitAndPush(`evidence(${args.category}): ${id} — ${headline}`);
+  return ok(formatResult(`Recorded ${id} (${args.category}, ${args.confidence})`, result));
+}
+
 interface DoNothingArgs {
   reason: string;
   next_check?: string;
@@ -249,8 +312,9 @@ interface DoNothingArgs {
 
 // Append a section to today's tick log (`log/telos/YYYY-MM-DD-tick.md`).
 // Called by every action tool (assign_task / grade_task / accept_proposal /
-// do_nothing) so the daily trail is symmetric — actions don't leave less
-// trace than no-ops. Creates the file with frontmatter if missing.
+// write_evidence / do_nothing) so the daily trail is symmetric — actions
+// don't leave less trace than no-ops. Creates the file with frontmatter if
+// missing.
 async function appendTickLogSection(
   action: string,
   body: string,
@@ -565,6 +629,47 @@ const TOOLS = [
     },
   },
   {
+    name: 'write_evidence',
+    description:
+      "Record a formal evidence entry at evidence/EVD-NNN.md — auto-incremented ID, structured frontmatter (category, date=today PT, source, confidence), Observation + Assessment sections in the body. Use to promote a reflection's evidence_candidate into a durable claim, or to log an in-tick observation strong enough to anchor a profile/* update.\n\nCalibration rule (load-bearing): self-reported claims (Daniel said X about himself, no observation yet) must use source='self-report' AND confidence='tentative' — the tool auto-stamps ground_truth_pending: true so they're queryable later for validation. Self-report is hypothesis, not ground truth. To upgrade confidence later, write a NEW evidence entry citing the observational source (a log entry, commit SHA, etc.) — do not edit the original.\n\nSource conventions: file path (e.g., 'log/telos/2026-05-06-tick.md', 'log/guya/...-bootstrap-...md') — pre-commit verifies it exists; commit SHA (e.g., 'ca38dac') for code/decision evidence; or the literal 'self-report' for unvalidated claims. Categories: strength | weakness | habit | growth | decision. evidence/MANIFEST.md is auto-regenerated by post-commit hook.",
+    inputSchema: {
+      type: 'object',
+      required: ['category', 'confidence', 'source', 'observation', 'assessment'],
+      properties: {
+        category: {
+          type: 'string',
+          enum: ['strength', 'weakness', 'habit', 'growth', 'decision'],
+          description:
+            'strength = capability demonstrated; weakness = gap demonstrated; habit = recurring behavior with frequency; growth = before/after delta; decision = a call Daniel made worth recording for pattern tracking.',
+        },
+        confidence: {
+          type: 'string',
+          enum: ['tentative', 'medium', 'high'],
+          description:
+            "tentative = single instance OR self-report; medium = 2-3 corroborating instances OR strong single artifact; high = ≥3 instances across time OR direct artifact + outcome. Self-report sources MUST be tentative.",
+        },
+        source: {
+          type: 'string',
+          minLength: 3,
+          description:
+            "Where the evidence comes from. File path (must exist — pre-commit checks): 'log/telos/YYYY-MM-DD-tick.md', 'log/guya/...md', 'evidence/EVD-NNN.md'. Commit SHA: 'ca38dac' for code/decision artifacts. Literal 'self-report' for Daniel-stated claims not yet observed (auto-flags ground_truth_pending).",
+        },
+        observation: {
+          type: 'string',
+          minLength: 10,
+          description:
+            'What was actually seen, said, or done — concrete, quotable, free of interpretation. Not the meaning, the raw material.',
+        },
+        assessment: {
+          type: 'string',
+          minLength: 10,
+          description:
+            "Your interpretation — what the observation means about Daniel (or about Telos's own behavior). This is where the evidence becomes useful for profile/* updates.",
+        },
+      },
+    },
+  },
+  {
     name: 'write_reflection',
     description:
       "Write today's nightly reflection to log/telos/YYYY-MM-DD-reflection.md. Eight required sections: what_happened, key_decisions, patterns_observed, what_daniel_should_take_away, what_telos_should_change, evidence_candidates, open_threads, next_priorities. All ≥10 chars; if a section has nothing to say, say that explicitly (e.g., 'No patterns crossed threshold today.'). Refuses to overwrite an existing reflection for the same day. Use only from the nightly reflection prompt — not from action ticks.",
@@ -632,6 +737,7 @@ const HANDLERS: Record<string, (args: any) => Promise<ToolResponse>> = {
   assign_task: assignTask,
   grade_task: gradeTask,
   accept_proposal: acceptProposal,
+  write_evidence: writeEvidence,
   write_reflection: writeReflection,
   read_today_transcript: readTodayTranscript,
   do_nothing: doNothing,
