@@ -349,8 +349,11 @@ async function writeReflection(args: WriteReflectionArgs): Promise<ToolResponse>
     return err(
       `Reflection already exists for ${date} at log/telos/${date}-reflection.md. Delete or rename the existing file before re-running.`,
     );
-  } catch {
-    // Not present — good, proceed.
+  } catch (e) {
+    // ENOENT is the intended case — file absent, safe to write. Any other
+    // access error (permissions, IO failure) means we cannot prove the file
+    // is absent; fail loud rather than risk overwriting unreadable content.
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
   }
 
   const fm: Frontmatter = {
@@ -403,6 +406,11 @@ async function readTodayTranscript(args: ReadTranscriptArgs): Promise<ToolRespon
     inbound = new Database(inboundPath, { readonly: true });
     outbound = new Database(outboundPath, { readonly: true });
   } catch (e) {
+    // If inbound opened but outbound failed, close inbound so the file handle
+    // doesn't leak until process exit. Both undefined-checks are needed —
+    // the failing constructor leaves its target undefined, the prior one set.
+    if (inbound) inbound.close();
+    if (outbound) outbound.close();
     return err(`Failed to open session DBs: ${e instanceof Error ? e.message : String(e)}`);
   }
 
