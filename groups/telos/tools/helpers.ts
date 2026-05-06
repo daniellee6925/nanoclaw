@@ -180,6 +180,40 @@ export async function commitAndPush(message: string): Promise<CommitResult> {
   await ensureGitConfig();
   await exec('git', ['add', '-A']);
   await exec('git', ['commit', '-m', message]);
+
+  // Fetch + rebase before push so we don't race with other writers (laptop,
+  // other Telos sessions). Origin can advance any time; mini's clone has no
+  // auto-pull. Without this fetch+rebase, every laptop push to constantia
+  // silently sets up a non-fast-forward failure for the next Telos commit
+  // — the MCP server is the only place this can be fixed automatically.
+  try {
+    await exec('git', ['fetch', 'origin', 'main']);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    const { stdout: sha } = await exec('git', ['rev-parse', 'HEAD']);
+    return { sha, pushed: false, pushError: `Fetch failed: ${msg.slice(0, 300)}` };
+  }
+
+  try {
+    await exec('git', ['rebase', 'origin/main']);
+  } catch (rebaseErr) {
+    // Conflict — abort to leave the repo in a clean state. The local commit
+    // is still on the previous tip; operator can resolve manually on mini.
+    try {
+      await exec('git', ['rebase', '--abort']);
+    } catch {
+      /* ignore — rebase may have already aborted itself */
+    }
+    const msg = rebaseErr instanceof Error ? rebaseErr.message : String(rebaseErr);
+    const { stdout: sha } = await exec('git', ['rev-parse', 'HEAD']);
+    return {
+      sha,
+      pushed: false,
+      pushError: `Rebase conflict — manual resolution needed on mini: ${msg.slice(0, 300)}`,
+    };
+  }
+
+  // SHA may have changed: rebase rewrites commits onto the new tip.
   const { stdout: sha } = await exec('git', ['rev-parse', 'HEAD']);
   try {
     await exec('git', ['push', 'origin', 'main']);
