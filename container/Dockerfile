@@ -57,6 +57,14 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
        fi \
     && rm -rf /var/lib/apt/lists/*
 
+# Pin github.com SSH host keys into the system known_hosts so any process
+# (MCP subprocess, agent shell, post-commit hooks) can verify github.com
+# without needing GIT_SSH_COMMAND or per-user known_hosts setup. Universal
+# benefit: any agent group that talks to github.com over SSH benefits.
+# Per-group IdentityFile config (which deploy key to present) lives in
+# per-agent image rebuilds since the key path is group-specific.
+RUN ssh-keyscan -t rsa,ecdsa,ed25519 github.com >> /etc/ssh/ssh_known_hosts
+
 # Chromium path for agent-browser / Playwright consumers
 ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
