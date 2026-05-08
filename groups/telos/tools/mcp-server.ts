@@ -39,7 +39,11 @@ import { Database } from 'bun:sqlite';
 
 import {
   CONSTANTIA_PATH,
+  CURRICULA_DIR,
   EVIDENCE_DIR,
+  LEARN_DIR,
+  PROPOSALS_DIR,
+  REMINDERS_DIR,
   TASKS_FILES_DIR,
   TELOS_LOG_DIR,
   SESSION_DIR,
@@ -48,6 +52,9 @@ import {
   extractText,
   formatResult,
   nextEvidenceId,
+  nextLearnId,
+  nextProposalId,
+  nextReminderId,
   nextTaskId,
   nowPT,
   ok,
@@ -146,7 +153,8 @@ async function gradeTask(args: GradeTaskArgs): Promise<ToolResponse> {
   let content: string;
   try {
     content = await fs.readFile(filePath, 'utf-8');
-  } catch {
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
     return err(`Task ${args.task_id} not found at ${filePath}`);
   }
 
@@ -180,26 +188,448 @@ async function gradeTask(args: GradeTaskArgs): Promise<ToolResponse> {
 }
 
 interface AcceptProposalArgs {
-  task_id: string;
-  priority: 'P1' | 'P2' | 'P3';
+  proposal_id: string;
+  // task target args
+  priority?: 1 | 2 | 3;
   pillar?: number | 'none';
-  purpose?: string;
   acceptance?: string;
+  // learn target args
+  curriculum?: string;
+  module?: string | number;
+  success?: string;
+  by?: string;
+  // curriculum target args
+  curriculum_id?: string; // filename slug; e.g., "bytebytego-systems"
+  // shared
   context_addition?: string;
 }
 
-// PHASE 2b TODO: full rewrite needed. Post 2026-05-08 reorg semantics:
-//   - Read T-### from PROPOSALS_DIR
-//   - Inspect frontmatter `target` field (task | learn | curriculum)
-//   - target=task     → spawn P-### in TASKS_FILES_DIR (this is a NEW file, not in-place mutation)
-//   - target=learn    → spawn L-### in LEARN_DIR (requires curriculum + module + success + by args)
-//   - target=curriculum → promote body content to CURRICULA_DIR (filename = curriculum id)
-//   - Update T-### status to 'accepted' in PROPOSALS_DIR (preserve as audit trail)
-// Leaving this broken on purpose for Phase 2a — explicit error until 2b lands.
-async function acceptProposal(_args: AcceptProposalArgs): Promise<ToolResponse> {
-  return err(
-    'accept_proposal: pending Phase 2b rewrite — semantics changed post 2026-05-08 reorg. Read tasks/proposals/T-NNN.md, inspect target field, spawn the right artifact in tasks/{tasks,learn,learn/curricula}/. Until 2b ships, accept proposals manually via direct file edits.',
+// Read T-### from PROPOSALS_DIR, inspect target field, spawn the right artifact:
+//   target=task       → new P-### in TASKS_FILES_DIR
+//   target=learn      → new L-### in LEARN_DIR
+//   target=curriculum → new file in CURRICULA_DIR (body of T-### becomes content)
+// In all cases the T-### itself is updated to status=accepted (audit trail).
+async function acceptProposal(args: AcceptProposalArgs): Promise<ToolResponse> {
+  if (!/^T-\d{3}$/.test(args.proposal_id)) return err('proposal_id must match T-NNN');
+
+  const proposalPath = path.join(PROPOSALS_DIR, `${args.proposal_id}.md`);
+  let content: string;
+  try {
+    content = await fs.readFile(proposalPath, 'utf-8');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+    return err(`Proposal ${args.proposal_id} not found at ${proposalPath}`);
+  }
+
+  const { fm: pfm, body: pbody } = parseFrontmatter(content);
+  if (pfm.status !== 'proposed') {
+    return err(
+      `Proposal ${args.proposal_id} is in status "${pfm.status}", not "proposed". Already accepted or rejected.`,
+    );
+  }
+
+  const target = pfm.target;
+  if (target !== 'task' && target !== 'learn' && target !== 'curriculum') {
+    return err(`Proposal ${args.proposal_id} has invalid target "${target}" (must be task|learn|curriculum)`);
+  }
+
+  const { date } = nowPT();
+  let spawnedId = '';
+  let spawnedPath = '';
+  let headline = '';
+
+  if (target === 'task') {
+    if (!args.priority || ![1, 2, 3].includes(args.priority as number)) {
+      return err('target=task accept requires priority (1, 2, or 3) — re-grade fresh, do not auto-carry the proposal hint');
+    }
+    const pillar = args.pillar ?? pfm.target_pillar;
+    if (pillar !== 'none' && ![1, 2, 3].includes(Number(pillar))) {
+      return err('pillar must be 1, 2, 3, or "none"');
+    }
+    if (!args.acceptance || args.acceptance.length < 10) {
+      return err('target=task accept requires acceptance (≥10 chars, artifact-verifiable)');
+    }
+
+    spawnedId = await nextTaskId(); // P-NNN
+    spawnedPath = path.join(TASKS_FILES_DIR, `${spawnedId}.md`);
+    const taskFm: Frontmatter = {
+      id: spawnedId,
+      status: 'assigned',
+      pillar: String(pillar),
+      priority: String(args.priority),
+      assigned: date,
+      assigned_by: 'telos',
+      proposed_by: pfm.proposed_by ?? 'guya',
+      proposed_from: args.proposal_id,
+      purpose: pfm.purpose,
+      acceptance: args.acceptance,
+      grade: null,
+      grade_evidence: null,
+    };
+    const ctxNote = args.context_addition
+      ? `\n\n## Accepted from ${args.proposal_id} (${date})\n\n${args.context_addition}\n`
+      : `\n\n## Accepted from ${args.proposal_id} (${date})\n`;
+    await writeAtomic(spawnedPath, serializeFrontmatter(taskFm) + pbody.trimEnd() + ctxNote);
+    headline = (pfm.purpose ?? '').split('\n')[0].slice(0, 60);
+  } else if (target === 'learn') {
+    if (!args.priority || ![1, 2, 3].includes(args.priority as number)) {
+      return err('target=learn accept requires priority (1, 2, or 3)');
+    }
+    const pillar = args.pillar ?? pfm.target_pillar;
+    if (pillar !== 'none' && ![1, 2, 3].includes(Number(pillar))) {
+      return err('pillar must be 1, 2, 3, or "none"');
+    }
+    if (!args.curriculum) return err('target=learn accept requires curriculum (id, e.g. "bytebytego-systems")');
+    if (args.module === undefined || args.module === null) return err('target=learn accept requires module (number or name)');
+    if (!args.success || args.success.length < 10) return err('target=learn accept requires success (≥10 chars, knowledge-check criterion)');
+    if (!args.by || !/^\d{4}-\d{2}-\d{2}$/.test(args.by)) return err('target=learn accept requires by (YYYY-MM-DD due date)');
+
+    // Verify curriculum file exists
+    const curriculumPath = path.join(CURRICULA_DIR, `${args.curriculum}.md`);
+    try {
+      await fs.access(curriculumPath);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+      return err(`Curriculum "${args.curriculum}" not found at ${curriculumPath}. Author it first or check the id.`);
+    }
+
+    spawnedId = await nextLearnId(); // L-NNN
+    spawnedPath = path.join(LEARN_DIR, `${spawnedId}.md`);
+    const learnFm: Frontmatter = {
+      id: spawnedId,
+      status: 'assigned',
+      pillar: String(pillar),
+      priority: String(args.priority),
+      curriculum: args.curriculum,
+      module: String(args.module),
+      success: args.success,
+      by: args.by,
+      assigned: date,
+      assigned_by: 'telos',
+      proposed_from: args.proposal_id,
+      grade: null,
+      grade_evidence: null,
+    };
+    const ctxNote = args.context_addition
+      ? `\n\n## Accepted from ${args.proposal_id} (${date})\n\n${args.context_addition}\n\n## Notes\n`
+      : `\n\n## Accepted from ${args.proposal_id} (${date})\n\n## Notes\n`;
+    await writeAtomic(spawnedPath, serializeFrontmatter(learnFm) + pbody.trimEnd() + ctxNote);
+    headline = (pfm.purpose ?? `${args.curriculum} module ${args.module}`).split('\n')[0].slice(0, 60);
+  } else {
+    // target === 'curriculum'
+    if (!args.curriculum_id || !/^[a-z0-9-]+$/.test(args.curriculum_id)) {
+      return err('target=curriculum accept requires curriculum_id (lowercase-kebab slug, e.g. "ddia-deep")');
+    }
+    spawnedPath = path.join(CURRICULA_DIR, `${args.curriculum_id}.md`);
+    try {
+      await fs.access(spawnedPath);
+      return err(`Curriculum "${args.curriculum_id}" already exists at ${spawnedPath}. Pick a different id or edit the existing file directly.`);
+    } catch (e) {
+      // ENOENT is the desired case — file should not yet exist. Any other
+      // error (e.g. EACCES on an unreadable existing file) MUST throw —
+      // silently proceeding to writeAtomic would overwrite it.
+      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+    }
+    // Body of proposal becomes the curriculum content. Strip the proposal context section if present.
+    await writeAtomic(spawnedPath, pbody.trimStart());
+    spawnedId = args.curriculum_id;
+    headline = (pfm.purpose ?? args.curriculum_id).split('\n')[0].slice(0, 60);
+  }
+
+  // Mark proposal as accepted (preserve as audit trail)
+  pfm.status = 'accepted';
+  pfm.accepted_at = date;
+  pfm.accepted_into = spawnedId;
+  await writeAtomic(proposalPath, serializeFrontmatter(pfm) + pbody);
+
+  await appendTickLogSection(
+    'accept_proposal',
+    `**Proposal:** ${args.proposal_id}\n**Target:** ${target}\n**Spawned:** ${spawnedId}\n**Headline:** ${headline}${args.context_addition ? `\n**Note:** ${args.context_addition.split('\n')[0].slice(0, 200)}` : ''}`,
+    args.proposal_id,
   );
+  const result = await commitAndPush(`accept(${target}): ${args.proposal_id} → ${spawnedId} — ${headline}`);
+  return ok(formatResult(`Accepted ${args.proposal_id} as ${target} → ${spawnedId}`, result));
+}
+
+// ---- Phase 2b new tools ----------------------------------------------------
+
+interface ProposeTaskArgs {
+  target: 'task' | 'learn' | 'curriculum';
+  target_pillar: number | 'none';
+  target_priority: 1 | 2 | 3;
+  purpose: string;
+  context: string;
+  proposed_by?: 'telos' | 'guya' | 'daniel';
+}
+
+// Create a proposal in tasks/proposals/T-NNN.md. The proposal is just an idea —
+// acceptance turns it into the right artifact (P-task, L-task, or curriculum).
+// target_priority is a HINT; acceptProposal forces a fresh re-grade.
+async function proposeTask(args: ProposeTaskArgs): Promise<ToolResponse> {
+  if (!['task', 'learn', 'curriculum'].includes(args.target)) {
+    return err('target must be one of: task, learn, curriculum');
+  }
+  if (args.target_pillar !== 'none' && ![1, 2, 3].includes(Number(args.target_pillar))) {
+    return err('target_pillar must be 1, 2, 3, or "none"');
+  }
+  if (![1, 2, 3].includes(args.target_priority as number)) {
+    return err('target_priority must be 1, 2, or 3');
+  }
+  if (!args.purpose || args.purpose.length < 10) return err('purpose must be ≥10 chars');
+
+  const id = await nextProposalId(); // T-NNN
+  const { date } = nowPT();
+  const author = args.proposed_by ?? 'telos';
+
+  const fm: Frontmatter = {
+    id,
+    status: 'proposed',
+    target: args.target,
+    pillar: String(args.target_pillar), // pillar of the proposal itself; same as target by default
+    target_priority: String(args.target_priority),
+    target_pillar: String(args.target_pillar),
+    proposed_by: author,
+    proposed_at: date,
+    purpose: args.purpose,
+  };
+
+  // For target=curriculum, the context arg IS the curriculum draft — write it
+  // directly without wrapping in a "## Context" section. acceptProposal will
+  // promote the body verbatim into curricula/, so wrapping would produce a
+  // curriculum file that starts with "## Context" instead of its own heading.
+  // For target=task or learn, wrap context as a Context section so the proposal
+  // body is recognizably a proposal, not the artifact-to-be.
+  const body =
+    args.target === 'curriculum'
+      ? `\n\n${args.context}\n`
+      : `\n\n## Context\n\n${args.context}\n`;
+  const filePath = path.join(PROPOSALS_DIR, `${id}.md`);
+  await writeAtomic(filePath, serializeFrontmatter(fm) + body);
+
+  const headline = args.purpose.split('\n')[0].slice(0, 60);
+  await appendTickLogSection(
+    'propose_task',
+    `**Target:** ${args.target}\n**Target priority:** ${args.target_priority}\n**Target pillar:** ${args.target_pillar}\n**Purpose:** ${headline}`,
+    id,
+  );
+  const result = await commitAndPush(`propose(${args.target}): ${id} — ${headline}`);
+  return ok(formatResult(`Proposed ${id} (target=${args.target}, target_priority=${args.target_priority})`, result));
+}
+
+interface AssignLearnArgs {
+  pillar: number | 'none';
+  priority: 1 | 2 | 3;
+  curriculum: string;
+  module: string | number;
+  success: string;
+  by: string;
+  context: string;
+}
+
+// Direct learn-task assignment (no prior proposal). Writes tasks/learn/L-NNN.md.
+async function assignLearn(args: AssignLearnArgs): Promise<ToolResponse> {
+  if (args.pillar !== 'none' && ![1, 2, 3].includes(Number(args.pillar))) {
+    return err('pillar must be 1, 2, 3, or "none"');
+  }
+  if (![1, 2, 3].includes(args.priority as number)) {
+    return err('priority must be 1, 2, or 3');
+  }
+  if (!args.curriculum) return err('curriculum required (id, e.g. "bytebytego-systems")');
+  if (args.module === undefined || args.module === null) return err('module required (number or name)');
+  if (!args.success || args.success.length < 10) return err('success must be ≥10 chars (knowledge-check criterion)');
+  if (!args.by || !/^\d{4}-\d{2}-\d{2}$/.test(args.by)) return err('by must be YYYY-MM-DD');
+
+  // Verify curriculum file exists
+  const curriculumPath = path.join(CURRICULA_DIR, `${args.curriculum}.md`);
+  try {
+    await fs.access(curriculumPath);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+    return err(`Curriculum "${args.curriculum}" not found at ${curriculumPath}. Author it first or check the id.`);
+  }
+
+  const id = await nextLearnId(); // L-NNN
+  const { date } = nowPT();
+
+  const fm: Frontmatter = {
+    id,
+    status: 'assigned',
+    pillar: String(args.pillar),
+    priority: String(args.priority),
+    curriculum: args.curriculum,
+    module: String(args.module),
+    success: args.success,
+    by: args.by,
+    assigned: date,
+    assigned_by: 'telos',
+    grade: null,
+    grade_evidence: null,
+  };
+
+  const body = `\n\n## Context\n\n${args.context}\n\n## Notes\n`;
+  const filePath = path.join(LEARN_DIR, `${id}.md`);
+  await writeAtomic(filePath, serializeFrontmatter(fm) + body);
+
+  const headline = `${args.curriculum} module ${args.module}`.slice(0, 60);
+  await appendTickLogSection(
+    'assign_learn',
+    `**Pillar:** ${args.pillar}\n**Priority:** ${args.priority}\n**Curriculum:** ${args.curriculum}\n**Module:** ${args.module}\n**Due:** ${args.by}\n**Success:** ${args.success.split('\n')[0].slice(0, 200)}`,
+    id,
+  );
+  const result = await commitAndPush(`learn(assign): ${id} — ${headline}`);
+  return ok(formatResult(`Created ${id} (${args.curriculum} module ${args.module}, due ${args.by})`, result));
+}
+
+interface AddReminderArgs {
+  title: string;
+  schedule_type: 'once' | 'cron';
+  schedule_at?: string; // ISO timestamp; required when type=once
+  schedule_expr?: string; // cron expression; required when type=cron
+  context?: string;
+  added_by?: 'daniel' | 'telos';
+}
+
+// Add a reminder. schedule_type=once → schedule_at required; type=cron → schedule_expr required.
+// One-shot starts pending; cron starts active.
+async function addReminder(args: AddReminderArgs): Promise<ToolResponse> {
+  if (!args.title || args.title.length < 3) return err('title must be ≥3 chars');
+  if (args.schedule_type !== 'once' && args.schedule_type !== 'cron') {
+    return err('schedule_type must be "once" or "cron"');
+  }
+  let initialStatus: string;
+  if (args.schedule_type === 'once') {
+    if (!args.schedule_at) return err('schedule_type=once requires schedule_at (ISO timestamp)');
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(args.schedule_at)) {
+      return err('schedule_at must be ISO format YYYY-MM-DDTHH:MM (with optional seconds + tz)');
+    }
+    initialStatus = 'pending';
+  } else {
+    if (!args.schedule_expr) return err('schedule_type=cron requires schedule_expr (e.g. "0 18 * * *")');
+    // Permissive cron-shape check: 5 whitespace-separated tokens.
+    if (args.schedule_expr.trim().split(/\s+/).length !== 5) {
+      return err('schedule_expr must have 5 fields (min hour day month dayofweek)');
+    }
+    initialStatus = 'active';
+  }
+
+  const id = await nextReminderId(); // R-NNN
+  const { date } = nowPT();
+  const author = args.added_by ?? 'daniel';
+
+  const fm: Frontmatter = {
+    id,
+    title: args.title,
+    status: initialStatus,
+    schedule_type: args.schedule_type,
+    added_by: author,
+    added_at: date,
+    last_fired: null,
+  };
+  if (args.schedule_type === 'once') {
+    fm.schedule_at = args.schedule_at!;
+  } else {
+    fm.schedule_expr = args.schedule_expr!;
+  }
+
+  const body = args.context ? `\n\n## Context\n\n${args.context}\n` : '\n';
+  const filePath = path.join(REMINDERS_DIR, `${id}.md`);
+  await writeAtomic(filePath, serializeFrontmatter(fm) + body);
+
+  const scheduleDesc =
+    args.schedule_type === 'once' ? `once at ${args.schedule_at}` : `cron ${args.schedule_expr}`;
+  await appendTickLogSection(
+    'add_reminder',
+    `**Title:** ${args.title}\n**Schedule:** ${scheduleDesc}\n**Added by:** ${author}`,
+    id,
+  );
+  const result = await commitAndPush(`reminder(add): ${id} — ${args.title.slice(0, 60)}`);
+  return ok(formatResult(`Added ${id} (${args.title}, ${scheduleDesc})`, result));
+}
+
+interface GradeLearnArgs {
+  learn_id: string;
+  outcome: 'graded' | 'abandoned';
+  grade?: 'A' | 'B' | 'C';
+  grade_evidence?: string;
+  abandonment_reason?: string;
+}
+
+// Grade or abandon an L-task. Same shape as gradeTask but for learn lifecycle.
+async function gradeLearn(args: GradeLearnArgs): Promise<ToolResponse> {
+  if (!/^L-\d{3}$/.test(args.learn_id)) return err('learn_id must match L-NNN');
+  if (args.outcome !== 'graded' && args.outcome !== 'abandoned') {
+    return err('outcome must be "graded" or "abandoned"');
+  }
+  if (args.outcome === 'graded') {
+    if (!['A', 'B', 'C'].includes(args.grade ?? '')) {
+      return err('grade must be A, B, or C when outcome=graded');
+    }
+    if (!args.grade_evidence || args.grade_evidence.length < 10) {
+      return err('grade_evidence must be ≥10 chars when outcome=graded — cite the knowledge-check answer that met success');
+    }
+  } else {
+    if (!args.abandonment_reason || args.abandonment_reason.length < 10) {
+      return err('abandonment_reason must be ≥10 chars when outcome=abandoned');
+    }
+  }
+
+  const filePath = path.join(LEARN_DIR, `${args.learn_id}.md`);
+  let content: string;
+  try {
+    content = await fs.readFile(filePath, 'utf-8');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+    return err(`Learn task ${args.learn_id} not found at ${filePath}`);
+  }
+
+  const { fm, body } = parseFrontmatter(content);
+  if (fm.status === 'graded' || fm.status === 'abandoned') {
+    return err(`Learn task ${args.learn_id} is already in terminal state: ${fm.status}`);
+  }
+
+  fm.status = args.outcome;
+  if (args.outcome === 'graded') {
+    fm.grade = args.grade!;
+    fm.grade_evidence = args.grade_evidence!;
+  } else {
+    fm.abandonment_reason = args.abandonment_reason!;
+  }
+
+  await writeAtomic(filePath, serializeFrontmatter(fm) + body);
+
+  const summary =
+    args.outcome === 'graded'
+      ? args.grade!
+      : args.abandonment_reason!.split('\n')[0].slice(0, 50);
+  const logBody =
+    args.outcome === 'graded'
+      ? `**Outcome:** graded ${args.grade}\n**Curriculum:** ${fm.curriculum} module ${fm.module}\n**Evidence:** ${args.grade_evidence!.split('\n')[0].slice(0, 200)}`
+      : `**Outcome:** abandoned\n**Reason:** ${args.abandonment_reason!.split('\n')[0].slice(0, 200)}`;
+  await appendTickLogSection(`grade_learn (${args.outcome})`, logBody, args.learn_id);
+  const result = await commitAndPush(`learn(${args.outcome}): ${args.learn_id} — ${summary}`);
+  const headline = `${args.learn_id} ${args.outcome}${args.outcome === 'graded' ? ` (${args.grade})` : ''}`;
+  return ok(formatResult(headline, result));
+}
+
+interface ReadCurriculumArgs {
+  curriculum: string;
+}
+
+// Read the full content of a curriculum file. Used by learn-tick prompts to
+// surface module content when introducing or grading an L-task.
+async function readCurriculum(args: ReadCurriculumArgs): Promise<ToolResponse> {
+  if (!args.curriculum || !/^[a-z0-9-]+$/.test(args.curriculum)) {
+    return err('curriculum must be a lowercase-kebab slug (e.g. "bytebytego-systems")');
+  }
+  const filePath = path.join(CURRICULA_DIR, `${args.curriculum}.md`);
+  let content: string;
+  try {
+    content = await fs.readFile(filePath, 'utf-8');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+    return err(`Curriculum "${args.curriculum}" not found at ${filePath}. List existing: ls tasks/learn/curricula/`);
+  }
+  return ok(content);
 }
 
 interface WriteEvidenceArgs {
@@ -483,7 +913,7 @@ const TOOLS = [
   {
     name: 'assign_task',
     description:
-      'Create a new task in Constantia (tasks/TASK-NNN.md) with structured frontmatter. Auto-increments NNN, validates pillar (1/2/3/none) and priority (P1/P2/P3), commits, pushes. Use when the tick decision is to add new work for Daniel. At equal priority, pillar work wins over pillar=none.',
+      'Create a new P-task in tasks/tasks/P-NNN.md with structured frontmatter. Auto-increments NNN, validates pillar (1/2/3/none) and priority (1/2/3 numeric — no T/P prefix post 2026-05-08 reorg), commits, pushes. Use when the tick decision is to add new work for Daniel directly (no prior proposal). At equal priority, pillar work wins over pillar=none. To create a proposal instead, use propose_task. To accept a Guya-proposed T-task, use accept_proposal.',
     inputSchema: {
       type: 'object',
       required: ['pillar', 'priority', 'purpose', 'acceptance', 'context'],
@@ -496,91 +926,139 @@ const TOOLS = [
           description: '1=LLM serving + inference, 2=Production agentic systems, 3=Eval methodology, "none"=cross-cutting / non-growth work that still has to ship',
         },
         priority: {
-          type: 'string',
-          enum: ['P1', 'P2', 'P3'],
-          description: 'P1=next thing displaces standing work, P2=real work no urgency floor, P3=backburner only when blocked',
+          type: 'integer',
+          enum: [1, 2, 3],
+          description: '1=next thing displaces standing work, 2=real work no urgency floor, 3=backburner only when blocked',
         },
-        purpose: {
-          type: 'string',
-          minLength: 10,
-          description: 'Why this task — specific, ties to a pillar gap (or names the cross-cutting need if pillar=none). Not generic.',
-        },
-        acceptance: {
-          type: 'string',
-          minLength: 10,
-          description: 'Binary completion criteria — verifiable by artifact (commit, file, test output).',
-        },
-        context: {
-          type: 'string',
-          description: 'Background, links, scope. Goes in the body section of the task file.',
-        },
+        purpose: { type: 'string', minLength: 10, description: 'Why this task — specific, ties to a pillar gap or names the cross-cutting need. Not generic.' },
+        acceptance: { type: 'string', minLength: 10, description: 'Binary completion criteria — verifiable by artifact (commit, file, test output).' },
+        context: { type: 'string', description: 'Background, links, scope. Goes in the body section of the task file.' },
       },
     },
   },
   {
     name: 'grade_task',
     description:
-      'Grade or reject a task in terminal state. Reads existing TASK-NNN.md, updates frontmatter only (preserves body), commits, pushes. outcome="graded" requires grade (A/B/C) and grade_evidence. outcome="rejected" requires rejection_reason.',
+      'Grade or abandon a P-task in terminal state. Reads existing tasks/tasks/P-NNN.md, updates frontmatter only (preserves body), commits, pushes. outcome="graded" requires grade (A/B/C) and grade_evidence. outcome="abandoned" requires abandonment_reason. Post-reorg note: "rejected" is for proposals only; for tasks the terminal-without-grade state is "abandoned".',
     inputSchema: {
       type: 'object',
       required: ['task_id', 'outcome'],
       properties: {
-        task_id: { type: 'string', pattern: '^TASK-\\d{3}$', description: 'e.g. TASK-001' },
-        outcome: { type: 'string', enum: ['graded', 'rejected'] },
-        grade: {
-          type: 'string',
-          enum: ['A', 'B', 'C'],
-          description: 'Required when outcome=graded',
-        },
-        grade_evidence: {
-          type: 'string',
-          minLength: 10,
-          description:
-            'Required when outcome=graded — point at artifact (commit SHA, file path) + the rubric criterion that was met.',
-        },
-        rejection_reason: {
-          type: 'string',
-          minLength: 10,
-          description: 'Required when outcome=rejected — specific reason, not "not done".',
-        },
+        task_id: { type: 'string', pattern: '^P-\\d{3}$', description: 'e.g. P-001' },
+        outcome: { type: 'string', enum: ['graded', 'abandoned'] },
+        grade: { type: 'string', enum: ['A', 'B', 'C'], description: 'Required when outcome=graded' },
+        grade_evidence: { type: 'string', minLength: 10, description: 'Required when outcome=graded — cite artifact (commit SHA, file path) + rubric criterion met.' },
+        abandonment_reason: { type: 'string', minLength: 10, description: 'Required when outcome=abandoned — specific reason, not "not done".' },
       },
     },
   },
   {
     name: 'accept_proposal',
     description:
-      'Accept a Guya-proposed task — flips status from "proposed" to "assigned", sets assigned_by=telos, assigned=today, and stamps priority (P1/P2/P3). Required: priority. T → P conversion is unbound — pick P fresh based on current portfolio, not the proposal\'s T value. Optionally rewrite pillar/purpose/acceptance to sharpen the task. Use during proposed-task triage when the proposal is worth tracking. For pillar=none proposals, the rubric criterion does not apply — accept on: concrete artifact-verifiable acceptance, not a duplicate, makes sense given Daniel\'s priorities. Reject vague or misaligned proposals via grade_task with outcome=rejected.',
+      'Accept a T-proposal in tasks/proposals/T-NNN.md and spawn the right artifact based on its target field. target=task spawns P-NNN (requires priority + acceptance, optional pillar override). target=learn spawns L-NNN (requires priority + curriculum + module + success + by). target=curriculum promotes the proposal body into tasks/learn/curricula/<curriculum_id>.md. The T-NNN itself is marked status=accepted (audit trail). Pick priority fresh — the proposal hint is informational, not a contract.',
     inputSchema: {
       type: 'object',
-      required: ['task_id', 'priority'],
+      required: ['proposal_id'],
       properties: {
-        task_id: { type: 'string', pattern: '^TASK-\\d{3}$', description: 'e.g. TASK-005' },
-        priority: {
-          type: 'string',
-          enum: ['P1', 'P2', 'P3'],
-          description: 'P-tier stamp on accept. Pick fresh — the proposal\'s T value is a hint, not a contract. P1=next thing displaces standing work, P2=real work no urgency floor, P3=backburner only when blocked.',
-        },
+        proposal_id: { type: 'string', pattern: '^T-\\d{3}$', description: 'e.g. T-005' },
+        priority: { type: 'integer', enum: [1, 2, 3], description: 'Required for target=task or target=learn. Plain numeric.' },
         pillar: {
-          oneOf: [
-            { type: 'integer', enum: [1, 2, 3] },
-            { type: 'string', enum: ['none'] },
-          ],
-          description: 'Optional override if Guya filed under the wrong pillar (or to flip pillar↔none).',
+          oneOf: [{ type: 'integer', enum: [1, 2, 3] }, { type: 'string', enum: ['none'] }],
+          description: 'Optional override of target_pillar from the proposal.',
         },
-        purpose: {
-          type: 'string',
-          minLength: 10,
-          description: 'Optional rewrite — sharpen the rubric anchor (pillar 1/2/3) or the cross-cutting need (pillar=none).',
+        acceptance: { type: 'string', minLength: 10, description: 'Required for target=task — artifact-verifiable completion criterion.' },
+        curriculum: { type: 'string', description: 'Required for target=learn — curriculum id (e.g. "bytebytego-systems"). File must exist.' },
+        module: { description: 'Required for target=learn — module number or name.', oneOf: [{ type: 'string' }, { type: 'integer' }] },
+        success: { type: 'string', minLength: 10, description: 'Required for target=learn — knowledge-check criterion for grading.' },
+        by: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$', description: 'Required for target=learn — due date YYYY-MM-DD.' },
+        curriculum_id: { type: 'string', pattern: '^[a-z0-9-]+$', description: 'Required for target=curriculum — filename slug, e.g. "ddia-deep".' },
+        context_addition: { type: 'string', description: 'Optional note explaining what was tightened on accept.' },
+      },
+    },
+  },
+  {
+    name: 'propose_task',
+    description:
+      'Propose work for Daniel\'s consideration — writes T-NNN.md to tasks/proposals/. The proposal is just an idea; accept_proposal turns it into the right artifact (P-task, L-task, or curriculum). target_priority is a HINT — accept_proposal forces a fresh re-grade. Use when surfacing an opportunity that isn\'t ready to be assigned outright (needs Daniel\'s input on shape/timing).',
+    inputSchema: {
+      type: 'object',
+      required: ['target', 'target_pillar', 'target_priority', 'purpose', 'context'],
+      properties: {
+        target: { type: 'string', enum: ['task', 'learn', 'curriculum'], description: 'What this proposal will spawn on accept.' },
+        target_pillar: {
+          oneOf: [{ type: 'integer', enum: [1, 2, 3] }, { type: 'string', enum: ['none'] }],
+          description: '1=LLM serving + inference, 2=Production agentic systems, 3=Eval methodology, "none"=cross-cutting.',
         },
-        acceptance: {
-          type: 'string',
-          minLength: 10,
-          description: 'Optional rewrite — make the criterion verifiable by artifact.',
+        target_priority: { type: 'integer', enum: [1, 2, 3], description: 'Hint — re-graded at accept time.' },
+        purpose: { type: 'string', minLength: 10, description: 'Why this proposal — specific, ties to a gap.' },
+        context: { type: 'string', description: 'Background, links, scope. Body of the proposal file.' },
+        proposed_by: { type: 'string', enum: ['telos', 'guya', 'daniel'], description: 'Optional — defaults to "telos".' },
+      },
+    },
+  },
+  {
+    name: 'assign_learn',
+    description:
+      'Assign a learn task directly (no prior proposal) — writes L-NNN.md to tasks/learn/. References a curriculum by id (filename without .md) plus a module within it. success is the knowledge-check criterion grade_learn evaluates against. by is the due date. Verifies the curriculum file exists before writing.',
+    inputSchema: {
+      type: 'object',
+      required: ['pillar', 'priority', 'curriculum', 'module', 'success', 'by', 'context'],
+      properties: {
+        pillar: {
+          oneOf: [{ type: 'integer', enum: [1, 2, 3] }, { type: 'string', enum: ['none'] }],
+          description: '1=LLM serving + inference, 2=Production agentic systems, 3=Eval methodology, "none"=cross-cutting.',
         },
-        context_addition: {
-          type: 'string',
-          description: 'Optional appended note explaining why you accepted (or what you tightened).',
-        },
+        priority: { type: 'integer', enum: [1, 2, 3], description: '1=urgent, 2=normal, 3=backburner.' },
+        curriculum: { type: 'string', description: 'Curriculum id (filename in tasks/learn/curricula/, without .md).' },
+        module: { description: 'Module number or name within the curriculum.', oneOf: [{ type: 'string' }, { type: 'integer' }] },
+        success: { type: 'string', minLength: 10, description: 'Knowledge-check criterion for grading — what Daniel must demonstrate.' },
+        by: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$', description: 'Due date YYYY-MM-DD.' },
+        context: { type: 'string', description: 'Background — why this module now, links, scope. Body of the L-task file.' },
+      },
+    },
+  },
+  {
+    name: 'add_reminder',
+    description:
+      'Add a reminder — writes R-NNN.md to tasks/reminders/. schedule_type=once requires schedule_at (ISO timestamp); schedule_type=cron requires schedule_expr (5-field cron). The launchd-driven check_reminders.sh script polls these and inserts messages into the life-session inbound.db when due. One-shot starts pending; cron starts active.',
+    inputSchema: {
+      type: 'object',
+      required: ['title', 'schedule_type'],
+      properties: {
+        title: { type: 'string', minLength: 3, description: 'Short reminder title — what the reminder is for.' },
+        schedule_type: { type: 'string', enum: ['once', 'cron'], description: 'one-shot fire vs recurring cron.' },
+        schedule_at: { type: 'string', description: 'ISO timestamp YYYY-MM-DDTHH:MM[:SS][±HH:MM]. Required when schedule_type=once.' },
+        schedule_expr: { type: 'string', description: '5-field cron expression. Required when schedule_type=cron.' },
+        context: { type: 'string', description: 'Optional — background or note about why this reminder exists.' },
+        added_by: { type: 'string', enum: ['daniel', 'telos'], description: 'Optional — defaults to "daniel".' },
+      },
+    },
+  },
+  {
+    name: 'grade_learn',
+    description:
+      'Grade or abandon an L-task in tasks/learn/L-NNN.md. outcome=graded requires grade (A/B/C) and grade_evidence (cite the knowledge-check answer that met success). outcome=abandoned requires abandonment_reason. Same lifecycle shape as grade_task but for learn. Use at the 10pm learn tick when L-task success criteria have been met (or stalled past due).',
+    inputSchema: {
+      type: 'object',
+      required: ['learn_id', 'outcome'],
+      properties: {
+        learn_id: { type: 'string', pattern: '^L-\\d{3}$', description: 'e.g. L-001' },
+        outcome: { type: 'string', enum: ['graded', 'abandoned'] },
+        grade: { type: 'string', enum: ['A', 'B', 'C'], description: 'Required when outcome=graded.' },
+        grade_evidence: { type: 'string', minLength: 10, description: 'Required when outcome=graded — cite the knowledge-check Q + Daniel\'s answer that met success.' },
+        abandonment_reason: { type: 'string', minLength: 10, description: 'Required when outcome=abandoned — specific reason.' },
+      },
+    },
+  },
+  {
+    name: 'read_curriculum',
+    description:
+      'Read the full content of a curriculum file at tasks/learn/curricula/<curriculum>.md. Read-only — no commit, no push. Use when introducing a learn-task to surface module content, or when grading to ground the knowledge check in the original material.',
+    inputSchema: {
+      type: 'object',
+      required: ['curriculum'],
+      properties: {
+        curriculum: { type: 'string', pattern: '^[a-z0-9-]+$', description: 'Curriculum id (filename slug, e.g. "bytebytego-systems").' },
       },
     },
   },
@@ -693,6 +1171,11 @@ const HANDLERS: Record<string, (args: any) => Promise<ToolResponse>> = {
   assign_task: assignTask,
   grade_task: gradeTask,
   accept_proposal: acceptProposal,
+  propose_task: proposeTask,
+  assign_learn: assignLearn,
+  add_reminder: addReminder,
+  grade_learn: gradeLearn,
+  read_curriculum: readCurriculum,
   write_evidence: writeEvidence,
   write_reflection: writeReflection,
   read_today_transcript: readTodayTranscript,
