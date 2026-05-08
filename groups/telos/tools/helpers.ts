@@ -15,6 +15,12 @@ import * as path from 'node:path';
 
 export const CONSTANTIA_PATH = '/workspace/extra/constantia';
 export const TASKS_DIR = path.join(CONSTANTIA_PATH, 'tasks');
+// Post 2026-05-08 reorg: tasks/ is split into 4 sibling dirs.
+export const PROPOSALS_DIR = path.join(TASKS_DIR, 'proposals');
+export const TASKS_FILES_DIR = path.join(TASKS_DIR, 'tasks');
+export const LEARN_DIR = path.join(TASKS_DIR, 'learn');
+export const CURRICULA_DIR = path.join(LEARN_DIR, 'curricula');
+export const REMINDERS_DIR = path.join(TASKS_DIR, 'reminders');
 export const EVIDENCE_DIR = path.join(CONSTANTIA_PATH, 'evidence');
 export const LOG_DIR = path.join(CONSTANTIA_PATH, 'log');
 export const TELOS_LOG_DIR = path.join(LOG_DIR, 'telos');
@@ -149,24 +155,47 @@ export async function writeAtomic(filePath: string, content: string): Promise<vo
   await fs.rename(tmpPath, filePath);
 }
 
-export async function nextTaskId(): Promise<string> {
-  const files = await fs.readdir(TASKS_DIR);
+// Generic next-ID generator — scans `dir` for files matching `${prefix}-NNN.md`
+// and returns the next id. Idempotent: max+1 always; never reuses.
+async function nextId(dir: string, prefix: string): Promise<string> {
+  let files: string[];
+  try {
+    files = await fs.readdir(dir);
+  } catch (e) {
+    // ENOENT: dir doesn't exist yet (legitimate empty case — e.g., fresh
+    // proposals/ before any T-### lands). Anything else (EACCES, EIO,
+    // EPERM) is a real failure that must NOT silently produce prefix-001
+    // collisions with existing files we couldn't read.
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+    files = [];
+  }
   let max = 0;
+  const re = new RegExp(`^${prefix}-(\\d{3})\\.md$`);
   for (const f of files) {
-    const m = f.match(/^TASK-(\d{3})\.md$/);
+    const m = f.match(re);
     if (m) max = Math.max(max, parseInt(m[1], 10));
   }
-  return `TASK-${String(max + 1).padStart(3, '0')}`;
+  return `${prefix}-${String(max + 1).padStart(3, '0')}`;
+}
+
+export async function nextProposalId(): Promise<string> {
+  return nextId(PROPOSALS_DIR, 'T');
+}
+
+export async function nextTaskId(): Promise<string> {
+  return nextId(TASKS_FILES_DIR, 'P');
+}
+
+export async function nextLearnId(): Promise<string> {
+  return nextId(LEARN_DIR, 'L');
+}
+
+export async function nextReminderId(): Promise<string> {
+  return nextId(REMINDERS_DIR, 'R');
 }
 
 export async function nextEvidenceId(): Promise<string> {
-  const files = await fs.readdir(EVIDENCE_DIR);
-  let max = 0;
-  for (const f of files) {
-    const m = f.match(/^EVD-(\d{3})\.md$/);
-    if (m) max = Math.max(max, parseInt(m[1], 10));
-  }
-  return `EVD-${String(max + 1).padStart(3, '0')}`;
+  return nextId(EVIDENCE_DIR, 'EVD');
 }
 
 // ---- Git -------------------------------------------------------------------

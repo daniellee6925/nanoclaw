@@ -40,7 +40,7 @@ import { Database } from 'bun:sqlite';
 import {
   CONSTANTIA_PATH,
   EVIDENCE_DIR,
-  TASKS_DIR,
+  TASKS_FILES_DIR,
   TELOS_LOG_DIR,
   SESSION_DIR,
   commitAndPush,
@@ -66,42 +66,42 @@ import {
 
 interface AssignTaskArgs {
   pillar: number | 'none';
-  priority: 'P1' | 'P2' | 'P3';
+  priority: 1 | 2 | 3;
   purpose: string;
   acceptance: string;
   context: string;
 }
 
+// Direct task assignment (no prior proposal). Writes tasks/tasks/P-NNN.md.
+// Post 2026-05-08 reorg: priority is plain numeric 1|2|3 (no T/P prefix).
 async function assignTask(args: AssignTaskArgs): Promise<ToolResponse> {
   if (args.pillar !== 'none' && ![1, 2, 3].includes(args.pillar as number)) {
     return err('pillar must be 1, 2, 3, or "none"');
   }
-  if (!['P1', 'P2', 'P3'].includes(args.priority)) {
-    return err('priority must be P1, P2, or P3');
+  if (![1, 2, 3].includes(args.priority as number)) {
+    return err('priority must be 1, 2, or 3');
   }
   if (!args.purpose || args.purpose.length < 10) return err('purpose must be ≥10 chars');
   if (!args.acceptance || args.acceptance.length < 10) return err('acceptance must be ≥10 chars');
 
-  const id = await nextTaskId();
+  const id = await nextTaskId(); // → P-NNN
   const { date } = nowPT();
 
   const fm: Frontmatter = {
     id,
     status: 'assigned',
     pillar: String(args.pillar),
-    priority: args.priority,
+    priority: String(args.priority),
     assigned: date,
     assigned_by: 'telos',
-    proposed_by: 'telos',
     purpose: args.purpose,
     acceptance: args.acceptance,
     grade: null,
     grade_evidence: null,
-    rejection_reason: null,
   };
 
   const body = `\n\n## Context\n\n${args.context}\n`;
-  const filePath = path.join(TASKS_DIR, `${id}.md`);
+  const filePath = path.join(TASKS_FILES_DIR, `${id}.md`);
   await writeAtomic(filePath, serializeFrontmatter(fm) + body);
 
   const headline = args.purpose.split('\n')[0].slice(0, 60);
@@ -111,21 +111,23 @@ async function assignTask(args: AssignTaskArgs): Promise<ToolResponse> {
     id,
   );
   const result = await commitAndPush(`task(assign): ${id} — ${headline}`);
-  return ok(formatResult(`Created ${id} (pillar ${args.pillar}, ${args.priority})`, result));
+  return ok(formatResult(`Created ${id} (pillar ${args.pillar}, priority ${args.priority})`, result));
 }
 
 interface GradeTaskArgs {
   task_id: string;
-  outcome: 'graded' | 'rejected';
+  outcome: 'graded' | 'abandoned';
   grade?: 'A' | 'B' | 'C';
   grade_evidence?: string;
-  rejection_reason?: string;
+  abandonment_reason?: string;
 }
 
+// Grade or abandon a P-task. Post 2026-05-08 reorg: 'rejected' is for proposals
+// only; for tasks the terminal-without-grade state is 'abandoned'.
 async function gradeTask(args: GradeTaskArgs): Promise<ToolResponse> {
-  if (!/^TASK-\d{3}$/.test(args.task_id)) return err('task_id must match TASK-NNN');
-  if (args.outcome !== 'graded' && args.outcome !== 'rejected') {
-    return err('outcome must be "graded" or "rejected"');
+  if (!/^P-\d{3}$/.test(args.task_id)) return err('task_id must match P-NNN');
+  if (args.outcome !== 'graded' && args.outcome !== 'abandoned') {
+    return err('outcome must be "graded" or "abandoned"');
   }
   if (args.outcome === 'graded') {
     if (!['A', 'B', 'C'].includes(args.grade ?? '')) {
@@ -135,12 +137,12 @@ async function gradeTask(args: GradeTaskArgs): Promise<ToolResponse> {
       return err('grade_evidence must be ≥10 chars when outcome=graded');
     }
   } else {
-    if (!args.rejection_reason || args.rejection_reason.length < 10) {
-      return err('rejection_reason must be ≥10 chars when outcome=rejected');
+    if (!args.abandonment_reason || args.abandonment_reason.length < 10) {
+      return err('abandonment_reason must be ≥10 chars when outcome=abandoned');
     }
   }
 
-  const filePath = path.join(TASKS_DIR, `${args.task_id}.md`);
+  const filePath = path.join(TASKS_FILES_DIR, `${args.task_id}.md`);
   let content: string;
   try {
     content = await fs.readFile(filePath, 'utf-8');
@@ -149,7 +151,7 @@ async function gradeTask(args: GradeTaskArgs): Promise<ToolResponse> {
   }
 
   const { fm, body } = parseFrontmatter(content);
-  if (fm.status === 'graded' || fm.status === 'rejected') {
+  if (fm.status === 'graded' || fm.status === 'abandoned') {
     return err(`Task ${args.task_id} is already in terminal state: ${fm.status}`);
   }
 
@@ -158,7 +160,7 @@ async function gradeTask(args: GradeTaskArgs): Promise<ToolResponse> {
     fm.grade = args.grade!;
     fm.grade_evidence = args.grade_evidence!;
   } else {
-    fm.rejection_reason = args.rejection_reason!;
+    fm.abandonment_reason = args.abandonment_reason!;
   }
 
   await writeAtomic(filePath, serializeFrontmatter(fm) + body);
@@ -166,11 +168,11 @@ async function gradeTask(args: GradeTaskArgs): Promise<ToolResponse> {
   const summary =
     args.outcome === 'graded'
       ? args.grade!
-      : args.rejection_reason!.split('\n')[0].slice(0, 50);
+      : args.abandonment_reason!.split('\n')[0].slice(0, 50);
   const logBody =
     args.outcome === 'graded'
       ? `**Outcome:** graded ${args.grade}\n**Evidence:** ${args.grade_evidence!.split('\n')[0].slice(0, 200)}`
-      : `**Outcome:** rejected\n**Reason:** ${args.rejection_reason!.split('\n')[0].slice(0, 200)}`;
+      : `**Outcome:** abandoned\n**Reason:** ${args.abandonment_reason!.split('\n')[0].slice(0, 200)}`;
   await appendTickLogSection(`grade_task (${args.outcome})`, logBody, args.task_id);
   const result = await commitAndPush(`task(${args.outcome}): ${args.task_id} — ${summary}`);
   const headline = `${args.task_id} ${args.outcome}${args.outcome === 'graded' ? ` (${args.grade})` : ''}`;
@@ -186,64 +188,18 @@ interface AcceptProposalArgs {
   context_addition?: string;
 }
 
-async function acceptProposal(args: AcceptProposalArgs): Promise<ToolResponse> {
-  if (!/^TASK-\d{3}$/.test(args.task_id)) return err('task_id must match TASK-NNN');
-  if (!['P1', 'P2', 'P3'].includes(args.priority)) {
-    return err('priority must be P1, P2, or P3 (T → P conversion is unbound — pick fresh based on portfolio)');
-  }
-
-  const filePath = path.join(TASKS_DIR, `${args.task_id}.md`);
-  let content: string;
-  try {
-    content = await fs.readFile(filePath, 'utf-8');
-  } catch {
-    return err(`Task ${args.task_id} not found at ${filePath}`);
-  }
-
-  const { fm, body } = parseFrontmatter(content);
-  if (fm.status !== 'proposed') {
-    return err(
-      `Task ${args.task_id} is in status "${fm.status}", not "proposed". Use grade_task to change a non-proposed state.`,
-    );
-  }
-
-  if (args.pillar !== undefined) {
-    if (args.pillar !== 'none' && ![1, 2, 3].includes(args.pillar as number)) {
-      return err('pillar must be 1, 2, 3, or "none"');
-    }
-    fm.pillar = String(args.pillar);
-  }
-  if (args.purpose !== undefined) {
-    if (args.purpose.length < 10) return err('purpose must be ≥10 chars');
-    fm.purpose = args.purpose;
-  }
-  if (args.acceptance !== undefined) {
-    if (args.acceptance.length < 10) return err('acceptance must be ≥10 chars');
-    fm.acceptance = args.acceptance;
-  }
-
-  const { date } = nowPT();
-  fm.status = 'assigned';
-  fm.priority = args.priority;
-  fm.assigned = date;
-  fm.assigned_by = 'telos';
-  // Preserve proposed_by — that's history.
-
-  let newBody = body;
-  if (args.context_addition && args.context_addition.length > 0) {
-    newBody = body.trimEnd() + `\n\n## Accepted by Telos (${date})\n\n${args.context_addition}\n`;
-  }
-
-  await writeAtomic(filePath, serializeFrontmatter(fm) + newBody);
-
-  const headline = (fm.purpose ?? '').split('\n')[0].slice(0, 60);
-  await appendTickLogSection(
-    'accept_proposal',
-    `**Pillar:** ${fm.pillar}\n**Priority:** ${args.priority}\n**Purpose:** ${headline}${args.context_addition ? `\n**Note:** ${args.context_addition.split('\n')[0].slice(0, 200)}` : ''}`,
-    args.task_id,
+// PHASE 2b TODO: full rewrite needed. Post 2026-05-08 reorg semantics:
+//   - Read T-### from PROPOSALS_DIR
+//   - Inspect frontmatter `target` field (task | learn | curriculum)
+//   - target=task     → spawn P-### in TASKS_FILES_DIR (this is a NEW file, not in-place mutation)
+//   - target=learn    → spawn L-### in LEARN_DIR (requires curriculum + module + success + by args)
+//   - target=curriculum → promote body content to CURRICULA_DIR (filename = curriculum id)
+//   - Update T-### status to 'accepted' in PROPOSALS_DIR (preserve as audit trail)
+// Leaving this broken on purpose for Phase 2a — explicit error until 2b lands.
+async function acceptProposal(_args: AcceptProposalArgs): Promise<ToolResponse> {
+  return err(
+    'accept_proposal: pending Phase 2b rewrite — semantics changed post 2026-05-08 reorg. Read tasks/proposals/T-NNN.md, inspect target field, spawn the right artifact in tasks/{tasks,learn,learn/curricula}/. Until 2b ships, accept proposals manually via direct file edits.',
   );
-  const result = await commitAndPush(`task(accept): ${args.task_id} — ${headline}`);
-  return ok(formatResult(`Accepted ${args.task_id} (pillar ${fm.pillar}, ${args.priority})`, result));
 }
 
 interface WriteEvidenceArgs {
