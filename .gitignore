@@ -30,6 +30,7 @@ groups/telos/*
 !groups/telos/CLAUDE.local.md
 !groups/telos/tick-prompt.md
 !groups/telos/tick-morning-prompt.md
+!groups/telos/tick-midday-prompt.md
 !groups/telos/tick-evening-prompt.md
 !groups/telos/reflect-prompt.md
 !groups/telos/tools/
