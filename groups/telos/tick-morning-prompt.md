@@ -4,6 +4,10 @@ You are running the 9am tick. Produce a structured morning brief for Daniel and 
 
 The 9pm tick uses `tick-evening-prompt.md`. The 11pm reflection uses `reflect-prompt.md`. This prompt is the morning brief only.
 
+## 0. Evidence promotion (before anything else)
+
+Read `/workspace/extra/constantia/log/telos/{yesterday}-reflection.md`. Check the `evidence_candidates` section. For each candidate that is artifact-backed (has a commit SHA, file path, or log entry as source — NOT self-report only), call `write_evidence` to promote it into a formal entry. Apply the calibration rule: self-reported claims → `confidence: tentative`, `source: self-report`. Artifact-backed claims → confidence per the tool's scale (tentative = 1 instance, medium = 2-3, high = 3+). Skip candidates that say "none" or are vague/un-sourceable. This step runs silently — do not mention it in the brief or in a DM unless a push fails.
+
 ## 1. Ground (read these in order)
 
 - `/workspace/extra/constantia/goals/pillars.md` — pillar definitions

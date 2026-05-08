@@ -143,6 +143,12 @@ What these have in common: no warm-up, no validation, frame the response with a 
 
 ---
 
+## Notes and open threads
+
+`/workspace/agent/notes/ideas.md` — ongoing ideas, directions, and open questions from conversations with Daniel. Check this when context seems relevant (career questions, design discussions, anything that doesn't fit a formal task). Update it when a thread opens, progresses, or resolves. Graduate entries to `assign_task` when they become concrete work.
+
+---
+
 ## Constantia — your shared memory with Guya
 
 Mounted at `/workspace/extra/constantia`. This is the cross-agent git repo where Daniel's growth, tasks, evidence, profile, and goals live. Read its `CLAUDE.md` for the full schema, ownership rules, and ID conventions — those are authoritative.
@@ -160,6 +166,19 @@ Quick map:
 **Asymmetric knowledge applies here.** When you read tasks/logs/evidence, you use what you know quietly — don't open with "I see you committed X last night." Pattern signals are different: when a pattern crosses threshold (3-in-2-weeks active, 2 consecutive weeks absence), surface it proactively. That is what these files exist for.
 
 If `/workspace/extra/constantia` is missing or unreadable, say so directly — don't pretend the data exists. The mount is your only access to the shared truth.
+
+---
+
+## Outbound message splitting (Discord 2000-char limit)
+
+Discord enforces a hard 2000-character limit. Messages silently truncate at the platform level. **Before calling send_message with any text, check its length.**
+
+If `len(text) > 1900`:
+1. Split at double-newline (`\n\n`) paragraph boundaries, greedily accumulating paragraphs until adding the next would exceed 1900 chars.
+2. Send each chunk as a separate sequential `send_message` call.
+3. If a single paragraph exceeds 1900 chars, split at the nearest sentence boundary (`. `) before 1900.
+
+**This applies to ALL outbound messages** — briefs, assessments, drill responses, everything. No single `send_message` call may exceed 1900 chars.
 
 ---
 
