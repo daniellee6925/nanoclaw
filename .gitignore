@@ -21,9 +21,16 @@ groups/*
 **/.claude-fragments/
 
 # Telos identity files — version-controlled override of nanoclaw's per-installation defaults.
-# soul.md, CLAUDE.local.md, tick-prompt.md, and the tools/ MCP server for the telos
-# group are tracked because they encode the agent's identity and abilities, not
-# transient runtime state. container.json stays per-installation.
+# Identity (soul.md), addenda (CLAUDE.local.md), and tick/reflect prompts encode the
+# agent's character and behavior — tracked. container.json stays per-installation
+# (it embeds agent_group_id and host-side mount paths).
+#
+# Telos has three sibling groups (one per session: work/learn/life). Each group has
+# its own addendum + tick prompts. The MCP tools live ONCE at shared/telos-tools/
+# and are mounted into every Telos session's container via additionalMounts —
+# avoiding duplicated tools/ is an ADR-013 silent-rot mitigation.
+
+# work session group
 !groups/telos/
 groups/telos/*
 !groups/telos/soul.md
@@ -33,8 +40,24 @@ groups/telos/*
 !groups/telos/tick-midday-prompt.md
 !groups/telos/tick-evening-prompt.md
 !groups/telos/reflect-prompt.md
-!groups/telos/tools/
-!groups/telos/tools/**
+
+# learn session group
+!groups/telos-learn/
+groups/telos-learn/*
+!groups/telos-learn/soul.md
+!groups/telos-learn/CLAUDE.local.md
+!groups/telos-learn/tick-morning-prompt.md
+!groups/telos-learn/tick-recall-prompt.md
+!groups/telos-learn/tick-midpoint-prompt.md
+!groups/telos-learn/tick-capture-prompt.md
+!groups/telos-learn/tick-close-prompt.md
+!groups/telos-learn/container.example.json
+
+# Shared Telos MCP tools — single source of truth, mounted into every Telos
+# group's container at /workspace/extra/telos-tools/.
+!shared/
+!shared/telos-tools/
+!shared/telos-tools/**
 
 # Secrets
 *.keys.json

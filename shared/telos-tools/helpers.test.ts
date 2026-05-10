@@ -10,7 +10,7 @@
  * need temp dirs / temp git repos and belong in a Phase 2 test file when
  * the debt becomes painful.
  *
- * Run: cd groups/telos/tools && bun test helpers.test.ts
+ * Run: cd shared/telos-tools && bun test helpers.test.ts
  */
 import { describe, test, expect } from 'bun:test';
 import {

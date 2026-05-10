@@ -1,0 +1,64 @@
+{
+  "_comment": [
+    "Template for the LEARN session's container.json. Copy to groups/telos-learn/container.json on mini and fill in:",
+    "  - agentGroupId: the UUID generated when creating the agent_group row in the central DB",
+    "  - additionalMounts.hostPath values: absolute host paths on mini",
+    "Fields starting with _ are documentation, ignored by the runtime (extra fields are tolerated by readContainerConfig).",
+    "",
+    "Architecture notes (post 2026-05-10 reorg):",
+    "  - mcp-server.ts lives ONCE at /Users/daniel/Desktop/telos/shared/telos-tools/ in the fork (mini path: <fork-checkout>/shared/telos-tools/).",
+    "  - Each Telos session group (telos / telos-learn / telos-life) mounts that dir RO at /workspace/extra/telos-tools/.",
+    "  - The MCP command points there, not at /workspace/agent/tools/ (groups/telos-learn/ has no tools/ dir of its own).",
+    "  - Mount-allowlist on mini must include the shared/telos-tools/ host path. Update mount-allowlist.json before first spawn.",
+    ""
+  ],
+
+  "groupName": "telos-learn",
+  "assistantName": "Telos",
+  "agentGroupId": "REPLACE_WITH_NEW_UUID",
+  "provider": "claude",
+  "skills": "all",
+  "maxMessagesPerPrompt": 50,
+
+  "mcpServers": {
+    "constantia-tools": {
+      "command": "bun",
+      "args": ["/workspace/extra/telos-tools/mcp-server.ts"],
+      "env": {
+        "GIT_SSH_COMMAND": "ssh -i /workspace/extra/ssh-key/constantia-deploy-key -o StrictHostKeyChecking=accept-new"
+      }
+    }
+  },
+
+  "packages": {
+    "apt": [],
+    "npm": []
+  },
+
+  "additionalMounts": [
+    {
+      "_comment": "Shared Telos MCP server (RO). Single source of truth across work/learn/life.",
+      "hostPath": "REPLACE_WITH_FORK_PATH/shared/telos-tools",
+      "containerPath": "telos-tools",
+      "readonly": true
+    },
+    {
+      "_comment": "Constantia repo (RW). Same mount as work session — shared cross-agent state.",
+      "hostPath": "REPLACE_WITH_CONSTANTIA_PATH",
+      "containerPath": "constantia",
+      "readonly": false
+    },
+    {
+      "_comment": "This LEARN session's own DB dir (RO). Used by read_today_transcript to read learn-chat history. Distinct from work session's DB.",
+      "hostPath": "REPLACE_WITH_LEARN_SESSION_DB_DIR",
+      "containerPath": "telos-session",
+      "readonly": true
+    },
+    {
+      "_comment": "Constantia git deploy key (RO). Same key as work session.",
+      "hostPath": "REPLACE_WITH_DEPLOY_KEY_DIR",
+      "containerPath": "ssh-key",
+      "readonly": true
+    }
+  ]
+}
