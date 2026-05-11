@@ -53,6 +53,18 @@ groups/telos-learn/*
 !groups/telos-learn/tick-close-prompt.md
 !groups/telos-learn/container.example.json
 
+# life session group
+!groups/telos-life/
+groups/telos-life/*
+!groups/telos-life/soul.md
+!groups/telos-life/CLAUDE.local.md
+!groups/telos-life/tick-morning-prompt.md
+!groups/telos-life/tick-bodycheck-prompt.md
+!groups/telos-life/tick-transition-prompt.md
+!groups/telos-life/tick-workout-prompt.md
+!groups/telos-life/tick-close-prompt.md
+!groups/telos-life/container.example.json
+
 # Shared Telos MCP tools — single source of truth, mounted into every Telos
 # group's container at /workspace/extra/telos-tools/.
 !shared/
