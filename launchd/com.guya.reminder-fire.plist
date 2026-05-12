@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.guya.reminder-fire</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>{{CONSTANTIA_ROOT}}/scripts/check_reminders.sh</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>{{CONSTANTIA_ROOT}}</string>
+
+    <key>StartInterval</key>
+    <integer>60</integer>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <!-- L4: include Docker.app + Homebrew defensively. Reminder script
+             doesn't currently shell out to docker, but keep parity with
+             nanoclaw plist so future helpers can rely on consistent PATH. -->
+        <key>PATH</key>
+        <string>/Applications/Docker.app/Contents/Resources/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>HOME</key>
+        <string>{{HOME}}</string>
+        <key>TZ</key>
+        <string>America/Los_Angeles</string>
+        <key>CONSTANTIA_ROOT</key>
+        <string>{{CONSTANTIA_ROOT}}</string>
+        <key>LIFE_INBOUND_DB</key>
+        <string>{{HOME}}/telos/data/v2-sessions/ag-1778531816000-life/sess-1778531816000-life/inbound.db</string>
+        <key>SIDECAR_PATH</key>
+        <string>{{HOME}}/.local/state/guya-reminder-fire/last_fired.json</string>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>{{HOME}}/Library/Logs/com.guya.reminder-fire.log</string>
+    <key>StandardErrorPath</key>
+    <string>{{HOME}}/Library/Logs/com.guya.reminder-fire.log</string>
+</dict>
+</plist>
