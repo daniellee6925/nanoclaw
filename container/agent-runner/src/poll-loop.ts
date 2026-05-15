@@ -279,6 +279,22 @@ async function processQuery(
       const newIds = newMessages.map((m) => m.id);
       markProcessing(newIds);
 
+      // Update routing context from the latest follow-up with populated routing.
+      // The initial extractRouting at wake time may have been a task row (NULL
+      // platform_id/channel_type/thread_id — scheduled ticks have no inherent
+      // routing). Subsequent chat-sdk follow-ups carry real routing that should
+      // be used for the agent's responses to them; otherwise the scratchpad
+      // fallback at dispatchResultText (line 388) can't fire and the reply
+      // becomes scratchpad-only with no Discord delivery.
+      for (const msg of newMessages) {
+        if (msg.platform_id && msg.channel_type) {
+          routing.platformId = msg.platform_id;
+          routing.channelType = msg.channel_type;
+          routing.threadId = msg.thread_id || null;
+          routing.inReplyTo = msg.id;
+        }
+      }
+
       const prompt = formatMessages(newMessages);
       log(`Pushing ${newMessages.length} follow-up message(s) into active query`);
       query.push(prompt);
