@@ -97,7 +97,7 @@ export function extractRouting(messages: MessageInRow[]): RoutingContext {
   return {
     platformId: first?.platform_id ?? null,
     channelType: first?.channel_type ?? null,
-    threadId: first?.thread_id ?? null,
+    threadId: first?.thread_id || null,
     inReplyTo: first?.id ?? null,
   };
 }

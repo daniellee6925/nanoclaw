@@ -69,7 +69,7 @@ export function writeMessageOut(msg: WriteMessageOut): number {
       $kind: msg.kind,
       $platform_id: msg.platform_id ?? null,
       $channel_type: msg.channel_type ?? null,
-      $thread_id: msg.thread_id ?? null,
+      $thread_id: msg.thread_id || null,
       $content: msg.content,
     });
 
