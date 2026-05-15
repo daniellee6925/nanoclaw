@@ -185,7 +185,7 @@ function formatTaskMessage(msg: MessageInRow): string {
   if (content.scriptOutput) {
     parts.push('', 'Script output:', JSON.stringify(content.scriptOutput, null, 2));
   }
-  parts.push('', 'Instructions:', content.prompt || '');
+  parts.push('', 'Instructions:', content.prompt || content.text || '');
   return parts.join('\n');
 }
 
