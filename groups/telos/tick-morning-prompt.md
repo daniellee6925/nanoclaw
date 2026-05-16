@@ -19,6 +19,7 @@ Read `/workspace/extra/constantia/log/telos/{yesterday}-reflection.md`. Check th
 
 ## 1. Ground (read these in order)
 
+- `/workspace/extra/constantia/goals/today-plan.md` — **last night's 10pm-tick capture of Daniel's priorities for today.** Authoritative when present. If marked *"Telos default — Daniel did not respond"*, treat as a hint not a contract — fall back to heuristic (step 2).
 - `/workspace/extra/constantia/goals/pillars.md` — pillar definitions
 - `/workspace/extra/constantia/tasks/MANIFEST.md` — full portfolio (all statuses, all priorities)
 - `/workspace/extra/constantia/log/telos/{yesterday}-tick.md` — yesterday's tick actions
@@ -40,10 +41,15 @@ Read on demand:
 
 Derive each section of the brief from the data above. If data is missing, say so explicitly (e.g., *"Yesterday: no Telos action logged."*) — do not invent.
 
-- **The one thing today.** The single highest-leverage P-task. Default: highest-priority assigned P-task idle ≥2 days with no blocker. Tiebreak: shorter scope (faster to ship in one focused block). If no priority-1 P-task alive → highest-priority assigned. If portfolio is empty → flag in brief and ask Daniel for direction.
-- **The fallback.** Next-most-leveraged P-task if Daniel has more capacity — often the second priority-1, or a priority-2 that pairs naturally.
+- **The one thing today.** Derivation order:
+  1. **If `goals/today-plan.md` exists and is dated for today AND is NOT marked *"Telos default"*** → use its priority 1 (Daniel's call from last night). The brief frames it as *"Per last night's plan, do this: ..."*.
+  2. **If `today-plan.md` is marked Telos default** → name the default at the top of the brief (*"Telos default — Daniel was silent last night; confirm or redirect"*) then use the heuristic below to pick.
+  3. **If `today-plan.md` is missing or stale (date ≠ today)** → fall through to heuristic.
+
+  Heuristic: highest-priority assigned P-task idle ≥2 days with no blocker. Tiebreak: shorter scope (faster to ship in one focused block). If no priority-1 P-task alive → highest-priority assigned. If portfolio is empty → flag in brief and ask Daniel for direction.
+- **The fallback.** From `today-plan.md` priority 2 if present, else heuristic next-most-leveraged P-task (often the second priority-1, or a priority-2 that pairs naturally).
 - **Active portfolio.** All assigned + in-progress P-tasks, grouped by priority 1 / 2 / 3, plus a count of open T-proposals and active L-tasks.
-- **Today's schedule.** Pull from `goals/weekly-schedule.md`: today's recurring blocks + any current-week overrides. Flag conflicts with the prescribed P-task block.
+- **Today's schedule.** Pull from `goals/weekly-schedule.md`: today's recurring blocks + any current-week overrides (rewritten by Sunday 10pm weekly-plan tick). Also surface any Monday-specific notes from `today-plan.md`'s "Notes for morning tick" section. Flag conflicts with the prescribed P-task block.
 - **Yesterday shipped.** Concrete artifacts: fork commits, Constantia commits, MCP tools deployed. Pull from yesterday's tick log + Guya's log + transcript. If yesterday was quiet, write *"Yesterday: light day, nothing shipped."* Don't pad.
 - **One-line commentary on the day's shape.** Optional. Use only when the data supports a sharp observation (e.g., *"Strong infra night. But priority-1 task progress = zero in 3 days. Infra is not the work."*). Omit if the day was balanced and unremarkable.
 - **Pillar absence watch.** For each pillar, days since last terminal-state task or assigned-task touch. Flag pillars at ≥7 days. Anchor in `profile/habits.md` patterns where applicable.

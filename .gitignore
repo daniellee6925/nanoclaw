@@ -39,6 +39,8 @@ groups/telos/*
 !groups/telos/tick-morning-prompt.md
 !groups/telos/tick-midday-prompt.md
 !groups/telos/tick-evening-prompt.md
+!groups/telos/tick-plan-daily-prompt.md
+!groups/telos/tick-plan-weekly-prompt.md
 !groups/telos/reflect-prompt.md
 
 # learn session group
