@@ -212,56 +212,29 @@ export async function ensureGitConfig(): Promise<void> {
 
 export interface CommitResult {
   sha: string;
-  pushed: boolean;
-  pushError?: string;
+  committed: true;
 }
 
-export async function commitAndPush(message: string): Promise<CommitResult> {
+/**
+ * Stage the given paths, commit with the given message. Push is owned by the
+ * host-side constantia-sync daemon (launchd job) — see ADR-024.
+ *
+ * `paths` must be the specific files this caller wrote (`-A` semantics within
+ * each path, so deletions and additions both stage). Passing an empty array
+ * is intentional only for "no file change, just record a commit object" cases
+ * — almost certainly a caller bug otherwise.
+ */
+export async function commitOnly(
+  message: string,
+  paths: string[],
+): Promise<CommitResult> {
   await ensureGitConfig();
-  await exec('git', ['add', '-A']);
+  if (paths.length > 0) {
+    await exec('git', ['add', '-A', '--', ...paths]);
+  }
   await exec('git', ['commit', '-m', message]);
-
-  // Fetch + rebase before push so we don't race with other writers (laptop,
-  // other Telos sessions). Origin can advance any time; mini's clone has no
-  // auto-pull. Without this fetch+rebase, every laptop push to constantia
-  // silently sets up a non-fast-forward failure for the next Telos commit
-  // — the MCP server is the only place this can be fixed automatically.
-  try {
-    await exec('git', ['fetch', 'origin', 'main']);
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    const { stdout: sha } = await exec('git', ['rev-parse', 'HEAD']);
-    return { sha, pushed: false, pushError: `Fetch failed: ${msg.slice(0, 300)}` };
-  }
-
-  try {
-    await exec('git', ['rebase', 'origin/main']);
-  } catch (rebaseErr) {
-    // Conflict — abort to leave the repo in a clean state. The local commit
-    // is still on the previous tip; operator can resolve manually on mini.
-    try {
-      await exec('git', ['rebase', '--abort']);
-    } catch {
-      /* ignore — rebase may have already aborted itself */
-    }
-    const msg = rebaseErr instanceof Error ? rebaseErr.message : String(rebaseErr);
-    const { stdout: sha } = await exec('git', ['rev-parse', 'HEAD']);
-    return {
-      sha,
-      pushed: false,
-      pushError: `Rebase conflict — manual resolution needed on mini: ${msg.slice(0, 300)}`,
-    };
-  }
-
-  // SHA may have changed: rebase rewrites commits onto the new tip.
   const { stdout: sha } = await exec('git', ['rev-parse', 'HEAD']);
-  try {
-    await exec('git', ['push', 'origin', 'main']);
-    return { sha, pushed: true };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return { sha, pushed: false, pushError: msg.slice(0, 500) };
-  }
+  return { sha, committed: true };
 }
 
 // ---- Tool response shape ---------------------------------------------------
@@ -280,9 +253,7 @@ export function err(text: string): ToolResponse {
 }
 
 export function formatResult(headline: string, result: CommitResult): string {
-  let out = `${headline}\nCommit: ${result.sha}\nPushed: ${result.pushed}`;
-  if (!result.pushed && result.pushError) out += `\nPush error: ${result.pushError}`;
-  return out;
+  return `${headline}\nCommit: ${result.sha}\nCommitted locally; constantia-sync daemon will push within 5s.`;
 }
 
 // ---- Transcript helpers ----------------------------------------------------

@@ -16,9 +16,11 @@
  * so the daily trail is symmetric. write_reflection lands at
  * `log/telos/YYYY-MM-DD-reflection.md`.
  *
- * Push failures DO NOT fail the tool — the file write + commit is durable
- * state. The tool returns `pushed: false` so Telos can mention it in its
- * response and Daniel can manually `git push` to recover.
+ * Push is owned by the host-side `constantia-sync` launchd daemon (ADR-024).
+ * Tools commit locally with `commitOnly(message, paths)` and return immediately;
+ * the daemon picks up the new commit within ~5s and pushes via host git (which
+ * doesn't hit the Docker bind-mount rebase failure mode that container git
+ * does). Daemon health surfaces via `.git/sync-status.json` + session-start.
  *
  * Constantia path is hardcoded (`/workspace/extra/constantia`). Single repo.
  * Session db dir is hardcoded (`/workspace/extra/telos-session`) — mounted
@@ -47,7 +49,7 @@ import {
   TASKS_FILES_DIR,
   TELOS_LOG_DIR,
   SESSION_DIR,
-  commitAndPush,
+  commitOnly,
   err,
   extractText,
   formatResult,
@@ -112,12 +114,12 @@ async function assignTask(args: AssignTaskArgs): Promise<ToolResponse> {
   await writeAtomic(filePath, serializeFrontmatter(fm) + body);
 
   const headline = args.purpose.split('\n')[0].slice(0, 60);
-  await appendTickLogSection(
+  const tickLogPath = await appendTickLogSection(
     'assign_task',
     `**Pillar:** ${args.pillar}\n**Priority:** ${args.priority}\n**Purpose:** ${headline}\n**Acceptance:** ${args.acceptance.split('\n')[0].slice(0, 100)}`,
     id,
   );
-  const result = await commitAndPush(`task(assign): ${id} — ${headline}`);
+  const result = await commitOnly(`task(assign): ${id} — ${headline}`, [filePath, tickLogPath]);
   return ok(formatResult(`Created ${id} (pillar ${args.pillar}, priority ${args.priority})`, result));
 }
 
@@ -181,8 +183,8 @@ async function gradeTask(args: GradeTaskArgs): Promise<ToolResponse> {
     args.outcome === 'graded'
       ? `**Outcome:** graded ${args.grade}\n**Evidence:** ${args.grade_evidence!.split('\n')[0].slice(0, 200)}`
       : `**Outcome:** abandoned\n**Reason:** ${args.abandonment_reason!.split('\n')[0].slice(0, 200)}`;
-  await appendTickLogSection(`grade_task (${args.outcome})`, logBody, args.task_id);
-  const result = await commitAndPush(`task(${args.outcome}): ${args.task_id} — ${summary}`);
+  const tickLogPath = await appendTickLogSection(`grade_task (${args.outcome})`, logBody, args.task_id);
+  const result = await commitOnly(`task(${args.outcome}): ${args.task_id} — ${summary}`, [filePath, tickLogPath]);
   const headline = `${args.task_id} ${args.outcome}${args.outcome === 'graded' ? ` (${args.grade})` : ''}`;
   return ok(formatResult(headline, result));
 }
@@ -342,12 +344,15 @@ async function acceptProposal(args: AcceptProposalArgs): Promise<ToolResponse> {
   pfm.accepted_into = spawnedId;
   await writeAtomic(proposalPath, serializeFrontmatter(pfm) + pbody);
 
-  await appendTickLogSection(
+  const tickLogPath = await appendTickLogSection(
     'accept_proposal',
     `**Proposal:** ${args.proposal_id}\n**Target:** ${target}\n**Spawned:** ${spawnedId}\n**Headline:** ${headline}${args.context_addition ? `\n**Note:** ${args.context_addition.split('\n')[0].slice(0, 200)}` : ''}`,
     args.proposal_id,
   );
-  const result = await commitAndPush(`accept(${target}): ${args.proposal_id} → ${spawnedId} — ${headline}`);
+  const result = await commitOnly(
+    `accept(${target}): ${args.proposal_id} → ${spawnedId} — ${headline}`,
+    [spawnedPath, proposalPath, tickLogPath],
+  );
   return ok(formatResult(`Accepted ${args.proposal_id} as ${target} → ${spawnedId}`, result));
 }
 
@@ -407,12 +412,12 @@ async function proposeTask(args: ProposeTaskArgs): Promise<ToolResponse> {
   await writeAtomic(filePath, serializeFrontmatter(fm) + body);
 
   const headline = args.purpose.split('\n')[0].slice(0, 60);
-  await appendTickLogSection(
+  const tickLogPath = await appendTickLogSection(
     'propose_task',
     `**Target:** ${args.target}\n**Target priority:** ${args.target_priority}\n**Target pillar:** ${args.target_pillar}\n**Purpose:** ${headline}`,
     id,
   );
-  const result = await commitAndPush(`propose(${args.target}): ${id} — ${headline}`);
+  const result = await commitOnly(`propose(${args.target}): ${id} — ${headline}`, [filePath, tickLogPath]);
   return ok(formatResult(`Proposed ${id} (target=${args.target}, target_priority=${args.target_priority})`, result));
 }
 
@@ -471,12 +476,12 @@ async function assignLearn(args: AssignLearnArgs): Promise<ToolResponse> {
   await writeAtomic(filePath, serializeFrontmatter(fm) + body);
 
   const headline = `${args.curriculum} module ${args.module}`.slice(0, 60);
-  await appendTickLogSection(
+  const tickLogPath = await appendTickLogSection(
     'assign_learn',
     `**Pillar:** ${args.pillar}\n**Priority:** ${args.priority}\n**Curriculum:** ${args.curriculum}\n**Module:** ${args.module}\n**Due:** ${args.by}\n**Success:** ${args.success.split('\n')[0].slice(0, 200)}`,
     id,
   );
-  const result = await commitAndPush(`learn(assign): ${id} — ${headline}`);
+  const result = await commitOnly(`learn(assign): ${id} — ${headline}`, [filePath, tickLogPath]);
   return ok(formatResult(`Created ${id} (${args.curriculum} module ${args.module}, due ${args.by})`, result));
 }
 
@@ -537,12 +542,12 @@ async function addReminder(args: AddReminderArgs): Promise<ToolResponse> {
 
   const scheduleDesc =
     args.schedule_type === 'once' ? `once at ${args.schedule_at}` : `cron ${args.schedule_expr}`;
-  await appendTickLogSection(
+  const tickLogPath = await appendTickLogSection(
     'add_reminder',
     `**Title:** ${args.title}\n**Schedule:** ${scheduleDesc}\n**Added by:** ${author}`,
     id,
   );
-  const result = await commitAndPush(`reminder(add): ${id} — ${args.title.slice(0, 60)}`);
+  const result = await commitOnly(`reminder(add): ${id} — ${args.title.slice(0, 60)}`, [filePath, tickLogPath]);
   return ok(formatResult(`Added ${id} (${args.title}, ${scheduleDesc})`, result));
 }
 
@@ -605,8 +610,8 @@ async function gradeLearn(args: GradeLearnArgs): Promise<ToolResponse> {
     args.outcome === 'graded'
       ? `**Outcome:** graded ${args.grade}\n**Curriculum:** ${fm.curriculum} module ${fm.module}\n**Evidence:** ${args.grade_evidence!.split('\n')[0].slice(0, 200)}`
       : `**Outcome:** abandoned\n**Reason:** ${args.abandonment_reason!.split('\n')[0].slice(0, 200)}`;
-  await appendTickLogSection(`grade_learn (${args.outcome})`, logBody, args.learn_id);
-  const result = await commitAndPush(`learn(${args.outcome}): ${args.learn_id} — ${summary}`);
+  const tickLogPath = await appendTickLogSection(`grade_learn (${args.outcome})`, logBody, args.learn_id);
+  const result = await commitOnly(`learn(${args.outcome}): ${args.learn_id} — ${summary}`, [filePath, tickLogPath]);
   const headline = `${args.learn_id} ${args.outcome}${args.outcome === 'graded' ? ` (${args.grade})` : ''}`;
   return ok(formatResult(headline, result));
 }
@@ -683,11 +688,11 @@ async function writeEvidence(args: WriteEvidenceArgs): Promise<ToolResponse> {
   await writeAtomic(filePath, serializeFrontmatter(fm) + body);
 
   const headline = args.observation.split('\n')[0].slice(0, 60);
-  await appendTickLogSection(
+  const tickLogPath = await appendTickLogSection(
     'write_evidence',
     `**Evidence:** ${id}\n**Category:** ${args.category}\n**Source:** ${args.source}\n**Confidence:** ${args.confidence}${fm.ground_truth_pending ? ' (ground-truth-pending)' : ''}\n**Observation:** ${headline}`,
   );
-  const result = await commitAndPush(`evidence(${args.category}): ${id} — ${headline}`);
+  const result = await commitOnly(`evidence(${args.category}): ${id} — ${headline}`, [filePath, tickLogPath]);
   return ok(formatResult(`Recorded ${id} (${args.category}, ${args.confidence})`, result));
 }
 
@@ -705,7 +710,7 @@ async function appendTickLogSection(
   action: string,
   body: string,
   taskId?: string,
-): Promise<void> {
+): Promise<string> {
   const { date, time } = nowPT();
   const filePath = path.join(TELOS_LOG_DIR, `${date}-tick.md`);
 
@@ -731,17 +736,18 @@ async function appendTickLogSection(
   const taskLine = taskId ? `**Task:** ${taskId}\n` : '';
   const section = `## Tick ${time} PT — ${action}\n\n${taskLine}${body}\n\n`;
   await writeAtomic(filePath, existing + section);
+  return filePath;
 }
 
 async function doNothing(args: DoNothingArgs): Promise<ToolResponse> {
   if (!args.reason || args.reason.length < 20) return err('reason must be ≥20 chars');
 
   const body = `**Reason:** ${args.reason}\n\n**Next check:** ${args.next_check ?? '—'}`;
-  await appendTickLogSection('no-op', body);
+  const tickLogPath = await appendTickLogSection('no-op', body);
 
   const { date, time } = nowPT();
   const headline = args.reason.split('\n')[0].slice(0, 60);
-  const result = await commitAndPush(`tick(no-op): ${headline}`);
+  const result = await commitOnly(`tick(no-op): ${headline}`, [tickLogPath]);
   return ok(formatResult(`Logged no-op tick at ${time}\nLog: log/telos/${date}-tick.md`, result));
 }
 
@@ -822,7 +828,7 @@ async function writeReflection(args: WriteReflectionArgs): Promise<ToolResponse>
   await fs.mkdir(TELOS_LOG_DIR, { recursive: true });
   await writeAtomic(filePath, serializeFrontmatter(fm) + body);
 
-  const result = await commitAndPush(`reflection: ${date}`);
+  const result = await commitOnly(`reflection: ${date}`, [filePath]);
   return ok(formatResult(`Wrote reflection for ${date}\nLog: log/telos/${date}-reflection.md`, result));
 }
 
