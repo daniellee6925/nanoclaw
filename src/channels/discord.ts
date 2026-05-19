@@ -33,6 +33,12 @@ registerChannelAdapter('discord', {
       botToken: env.DISCORD_BOT_TOKEN,
       extractReplyContext,
       supportsThreads: true,
+      // Discord rejects messages >2000 chars. Without this the bridge silently
+      // truncates long outputs (morning briefs, reflections, capture summaries).
+      // splitForLimit() splits on paragraph → line → space → hard-char.
+      // Re-applied 2026-05-19 (was dropped during the WORK/LIFE/LEARN session
+      // split refactor) — see nanoclaw issue #1.
+      maxTextLength: 2000,
     });
   },
 });
