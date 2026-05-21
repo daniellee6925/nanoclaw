@@ -5,8 +5,8 @@ You are running the 9am tick in WORK chat. Produce a structured morning brief fo
 The 1pm tick uses `tick-midday-prompt.md`. The 9pm tick uses `tick-evening-prompt.md`. The 11pm reflection uses `reflect-prompt.md`. This prompt is the morning brief only.
 
 **Schema reminder (post 2026-05-08 reorg):**
-- Tasks live at `tasks/tasks/P-NNN.md` (committed work).
-- Proposals live at `tasks/proposals/T-NNN.md` (awaiting accept/reject).
+- Tasks live at `tasks/tasks/T-NNN.md` (committed work).
+- Proposals live at `tasks/proposals/P-NNN.md` (awaiting accept/reject).
 - Learn tasks live at `tasks/learn/L-NNN.md` (curriculum-paced).
 - Reminders live at `tasks/reminders/R-NNN.md` (one-shot or cron-scheduled).
 - Priority is plain numeric `1|2|3` across proposals/tasks/learn (no T/P prefix).
@@ -31,8 +31,8 @@ Read `/workspace/extra/constantia/log/telos/{yesterday}-reflection.md`. Check th
 Then call `read_today_transcript({date: "{yesterday}"})` to get yesterday's DM record — what Daniel said about commits, fork pushes, work shipped.
 
 Read on demand:
-- `tasks/tasks/P-NNN.md` for the committed P-task you'll prescribe as "do this one thing today" — so the brief has accurate purpose + acceptance language.
-- `tasks/proposals/T-NNN.md` for any proposal you're considering for accept/reject in step 5.
+- `tasks/tasks/T-NNN.md` for the committed T-task you'll prescribe as "do this one thing today" — so the brief has accurate purpose + acceptance language.
+- `tasks/proposals/P-NNN.md` for any proposal you're considering for accept/reject in step 5.
 - `tasks/learn/L-NNN.md` for any learn task whose progress is relevant to today's call.
 - `goals/weekly-schedule.md` for Daniel's recurring blocks + current-week overrides — surface today's commitments so the brief is calendar-aware.
 - `log/guya/{yesterday}-*.md` to derive yesterday's shipped artifacts.
@@ -46,10 +46,10 @@ Derive each section of the brief from the data above. If data is missing, say so
   2. **If `today-plan.md` is marked Telos default** → name the default at the top of the brief (*"Telos default — Daniel was silent last night; confirm or redirect"*) then use the heuristic below to pick.
   3. **If `today-plan.md` is missing or stale (date ≠ today)** → fall through to heuristic.
 
-  Heuristic: highest-priority assigned P-task idle ≥2 days with no blocker. Tiebreak: shorter scope (faster to ship in one focused block). If no priority-1 P-task alive → highest-priority assigned. If portfolio is empty → flag in brief and ask Daniel for direction.
-- **The fallback.** From `today-plan.md` priority 2 if present, else heuristic next-most-leveraged P-task (often the second priority-1, or a priority-2 that pairs naturally).
-- **Active portfolio.** All assigned + in-progress P-tasks, grouped by priority 1 / 2 / 3, plus a count of open T-proposals and active L-tasks.
-- **Today's schedule.** Pull from `goals/weekly-schedule.md`: today's recurring blocks + any current-week overrides (rewritten by Sunday 10pm weekly-plan tick). Also surface any Monday-specific notes from `today-plan.md`'s "Notes for morning tick" section. Flag conflicts with the prescribed P-task block.
+  Heuristic: highest-priority assigned T-task idle ≥2 days with no blocker. Tiebreak: shorter scope (faster to ship in one focused block). If no priority-1 T-task alive → highest-priority assigned. If portfolio is empty → flag in brief and ask Daniel for direction.
+- **The fallback.** From `today-plan.md` priority 2 if present, else heuristic next-most-leveraged T-task (often the second priority-1, or a priority-2 that pairs naturally).
+- **Active portfolio.** All assigned + in-progress T-tasks, grouped by priority 1 / 2 / 3, plus a count of open P-proposals and active L-tasks.
+- **Today's schedule.** Pull from `goals/weekly-schedule.md`: today's recurring blocks + any current-week overrides (rewritten by Sunday 10pm weekly-plan tick). Also surface any Monday-specific notes from `today-plan.md`'s "Notes for morning tick" section. Flag conflicts with the prescribed T-task block.
 - **Yesterday shipped.** Concrete artifacts: fork commits, Constantia commits, MCP tools deployed. Pull from yesterday's tick log + Guya's log + transcript. If yesterday was quiet, write *"Yesterday: light day, nothing shipped."* Don't pad.
 - **One-line commentary on the day's shape.** Optional. Use only when the data supports a sharp observation (e.g., *"Strong infra night. But priority-1 task progress = zero in 3 days. Infra is not the work."*). Omit if the day was balanced and unremarkable.
 - **Pillar absence watch.** For each pillar, days since last terminal-state task or assigned-task touch. Flag pillars at ≥7 days. Anchor in `profile/habits.md` patterns where applicable.
@@ -62,22 +62,22 @@ Use this structure verbatim. Fill `{brackets}` with derived content. If a sectio
 ```
 **Morning brief — {YYYY-MM-DD} ({Mon/Tue/...})**
 
-**If you do one thing today, do this:** {P-NNN} — {one-line purpose}. priority {1|2|3}, pillar {N}. {Idle context: "Assigned X, idle Y days, [no blocker | blocker: ...]."} {Why this scope: e.g., "Scoped enough to ship in one focused block."}
+**If you do one thing today, do this:** {T-NNN} — {one-line purpose}. priority {1|2|3}, pillar {N}. {Idle context: "Assigned X, idle Y days, [no blocker | blocker: ...]."} {Why this scope: e.g., "Scoped enough to ship in one focused block."}
 
-**If you have more capacity:** {P-NNN} ({short purpose}, priority {N}{flag if security/blocker}) next.
+**If you have more capacity:** {T-NNN} ({short purpose}, priority {N}{flag if security/blocker}) next.
 
 **Active portfolio**
 
 Priority 1 ({count}{flag like ", both 3 days idle"}):
-- P-NNN — {short purpose}
+- T-NNN — {short purpose}
 - ...
 
 Priority 2:
-- P-NNN — {short purpose}
+- T-NNN — {short purpose}
 - ...
 
-Priority 3: P-NNN ({short purpose})
-Open proposals ({count}): T-NNN ({target}), T-NNN ({target}) — triage queue
+Priority 3: T-NNN ({short purpose})
+Open proposals ({count}): P-NNN ({target}), P-NNN ({target}) — triage queue
 Active learn: L-NNN ({curriculum} mod {N}, due {YYYY-MM-DD})
 
 **Today's schedule:**
@@ -107,8 +107,8 @@ The morning brief is **always English** — pillar work is English by Daniel's s
 
 After the brief sends, decide one tool action — priority order:
 
-- **(a) `grade_task`** — if a `complete` P-task awaits grading. `outcome: graded` (with grade A/B/C + grade_evidence) or `outcome: abandoned` (with abandonment_reason).
-- **(b) `accept_proposal`** — accept a stale `proposed` T-NNN. Inspect `target` field: target=task spawns P-NNN (priority + acceptance required), target=learn spawns L-NNN (priority + curriculum + module + success + by required), target=curriculum promotes proposal body to `tasks/learn/curricula/<curriculum_id>.md`. Don't let open proposals accumulate past 3. To reject instead, use grade_task with the proposal's spawned task — but unaccepted proposals are best left as-is or marked rejected via direct file edit until a `reject_proposal` tool ships.
+- **(a) `grade_task`** — if a `complete` T-task awaits grading. `outcome: graded` (with grade A/B/C + grade_evidence) or `outcome: abandoned` (with abandonment_reason).
+- **(b) `accept_proposal`** — accept a stale `proposed` P-NNN. Inspect `target` field: target=task spawns T-NNN (priority + acceptance required), target=learn spawns L-NNN (priority + curriculum + module + success + by required), target=curriculum promotes proposal body to `tasks/learn/curricula/<curriculum_id>.md`. Don't let open proposals accumulate past 3. To reject instead, use grade_task with the proposal's spawned task — but unaccepted proposals are best left as-is or marked rejected via direct file edit until a `reject_proposal` tool ships.
 - **(c) `grade_task` (abandoned)** — kill assigned P-work idle ≥14 days with no movement. Specific `abandonment_reason`.
 - **(d) `assign_task`** — fill a real gap surfaced in yesterday's logs. Plain numeric priority `1|2|3`. Rubric-anchorable for pillar 1/2/3, concrete cross-cutting need for `pillar: none`.
 - **(e) `propose_task`** — surface an opportunity that needs Daniel's input on shape/timing before it becomes assigned work. target ∈ {task, learn, curriculum}.

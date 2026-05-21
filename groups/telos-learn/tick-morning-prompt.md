@@ -18,7 +18,7 @@ Other LEARN ticks: 1pm `tick-recall-prompt.md` (paper recall + article rec), 4pm
 Derive each section from the data above. If data is missing, say so explicitly — do not invent.
 
 - **Today's micro-goal.** ONE concrete next step on the highest-priority active L-task. Pull from the curriculum module's reading list or the L-task's `success` criterion. Not "make progress on L-007" — *"finish thundering-herd section + write 3-sentence note on why probabilistic early expiration helps"*.
-- **Time-block suggestion.** Cite Daniel's `goals/weekly-schedule.md` if a learn block exists today. If not, suggest a 30-45 min slot (avoid clashing with WORK morning brief's prescribed P-task window).
+- **Time-block suggestion.** Cite Daniel's `goals/weekly-schedule.md` if a learn block exists today. If not, suggest a 30-45 min slot (avoid clashing with WORK morning brief's prescribed T-task window).
 - **Stuck flag.** Any L-task with no `## Notes` entry in 5+ days → name it explicitly. *"L-005 silent 6 days. Comprehension, time, or interest?"*
 - **Today's paper.** ONE paper. Use `WebSearch` scoped to: the active L-task's curriculum domain + Daniel's pillar domains (ML systems, distributed systems, agentic systems). Examples of GOOD scoping: *"thundering herd cache stampede mitigation"*, *"continuous batching LLM inference"*. Examples of BAD scoping: *"best ML papers 2026"*, *"trending AI"*. Surface title + 1-sentence why-this-paper. Do NOT dump abstract.
 - **AI news scan (1-2 items).** Use `WebSearch` for items relevant to Daniel's domains in the last 24-48h. Same scoping rules. Skip if nothing genuine surfaced — don't pad.

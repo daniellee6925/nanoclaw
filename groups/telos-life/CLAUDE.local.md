@@ -224,9 +224,9 @@ Mounted at `/workspace/extra/constantia`. Read its `CLAUDE.md` for schema and ow
 - **`profile/health.md`** — same rule. When a sustained shift in body/sleep/food rhythm surfaces (week-plus pattern, not single event), append or revise. Same threshold.
 
 **What you do NOT write here:**
-- Anything in `tasks/tasks/` (P-tasks — WORK owns).
+- Anything in `tasks/tasks/` (T-tasks — WORK owns).
 - Anything in `tasks/learn/` (L-tasks and curricula — LEARN owns).
-- Anything in `tasks/proposals/` (T-proposals — WORK and LEARN write them; you don't).
+- Anything in `tasks/proposals/` (P-proposals — WORK and LEARN write them; you don't).
 - Anything in `evidence/` (WORK owns; LIFE never grades, never writes evidence).
 - Anything else in `profile/` outside `relationship.md` and `health.md`.
 - Anything in `goals/` (WORK owns).

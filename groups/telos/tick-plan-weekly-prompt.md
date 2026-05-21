@@ -7,7 +7,7 @@ This replaces the daily 10pm tick on Sundays — `tick-plan-daily-prompt.md` doe
 The 9pm Sunday evening brief already teased *"tomorrow's intent — your call"*; this 10pm tick is where the formal weekly + Monday capture happens.
 
 **Schema reminder:**
-- Tasks at `tasks/tasks/P-NNN.md`. Proposals at `tasks/proposals/T-NNN.md`. Learn at `tasks/learn/L-NNN.md`. Reminders at `tasks/reminders/R-NNN.md`.
+- Tasks at `tasks/tasks/T-NNN.md`. Proposals at `tasks/proposals/P-NNN.md`. Learn at `tasks/learn/L-NNN.md`. Reminders at `tasks/reminders/R-NNN.md`.
 - Priority is plain numeric `1|2|3`.
 - Artifacts you write: `goals/today-plan.md` (Monday's daily plan) + `goals/weekly-schedule.md` (week-override section rewritten for the new week).
 
@@ -23,7 +23,7 @@ The 9pm Sunday evening brief already teased *"tomorrow's intent — your call"*;
 Then call `read_today_transcript({date: "{today}"})` for Sunday's DMs. If Daniel replied to the 9pm evening brief with weekly intent, that's your input.
 
 Read on demand:
-- `tasks/tasks/P-NNN.md` for each priority-1 task — purpose, acceptance, age.
+- `tasks/tasks/T-NNN.md` for each priority-1 task — purpose, acceptance, age.
 - `tasks/learn/L-NNN.md` for active learn tasks with milestones in the coming week.
 - `tasks/learn/curricula/pillar-N-*.md` for any L-task you cite in the week-horizon ("this week pillar 1 module 4 reading").
 
@@ -47,17 +47,17 @@ State (c) cold:
 
 **Week-in-review ({last Mon} → {today}):**
 - Shipped: {1-2 concrete artifacts from last 7 days of reflections}.
-- Slipped: {priority-1 P-tasks idle ≥5 days, or pillar absence ≥7 days — be specific}.
+- Slipped: {priority-1 T-tasks idle ≥5 days, or pillar absence ≥7 days — be specific}.
 - Pattern: {one observation from profile/trajectory or recent reflections — only if real}.
 
 **Coming week — your call:**
-1. **Headline ship.** What's the one thing that has to land by Sunday? (P-NNN or new scope)
+1. **Headline ship.** What's the one thing that has to land by Sunday? (T-NNN or new scope)
 2. **Pillar focus.** Which pillar gets the deep block(s)? Saturday 9-13 is locked for Pillar 1 by default — override or confirm.
 3. **Blockers / wait-and-see.** Anything explicitly paused (dependency, decision pending, low-energy week)?
 4. **Calendar overrides.** Non-recurring events this week (travel, demos, social) that displace standard blocks?
 
 **Monday's plan ({Mon YYYY-MM-DD}):**
-5. Priority order — which 2-3 P-tasks lead Monday?
+5. Priority order — which 2-3 T-tasks lead Monday?
 6. Anything to skip Monday specifically?
 ```
 
@@ -80,13 +80,13 @@ Then **wait for Daniel's reply.** Parse and proceed to step 4. If no reply, writ
 
 ## Priorities (Daniel's call)
 
-1. {P-NNN} — {purpose}
-2. {P-NNN} — {purpose}
-3. {P-NNN, optional} — {purpose}
+1. {T-NNN} — {purpose}
+2. {T-NNN} — {purpose}
+3. {T-NNN, optional} — {purpose}
 
 ## Skip / defer
 
-- {P-NNN or "none stated"}
+- {T-NNN or "none stated"}
 
 ## Notes for morning tick
 
@@ -143,7 +143,7 @@ Two-part confirmation (English, one DM):
 ```
 **Week of {Mon YYYY-MM-DD} captured:**
 - Headline: {ships by Sunday}.
-- Monday: {P-NNN}, {P-NNN}, {P-NNN}.
+- Monday: {T-NNN}, {T-NNN}, {T-NNN}.
 - Overrides: {one-line of non-recurring events, or "standard rhythm"}.
 
 9am Monday tick reads today-plan.md as authoritative. weekly-schedule.md drives the rest of the week's morning ticks.

@@ -7,7 +7,7 @@ This runs in the gap between the 9pm evening brief (closeout) and the 11pm refle
 **Sunday is NOT covered by this tick.** Sunday 10pm uses `tick-plan-weekly-prompt.md` which folds Monday's plan into the weekly horizon. This prompt fires Mon-Sat only.
 
 **Schema reminder:**
-- Tasks at `tasks/tasks/P-NNN.md`. Proposals at `tasks/proposals/T-NNN.md`. Learn at `tasks/learn/L-NNN.md`. Reminders at `tasks/reminders/R-NNN.md`.
+- Tasks at `tasks/tasks/T-NNN.md`. Proposals at `tasks/proposals/P-NNN.md`. Learn at `tasks/learn/L-NNN.md`. Reminders at `tasks/reminders/R-NNN.md`.
 - Priority is plain numeric `1|2|3`.
 - The plan artifact you write is `goals/today-plan.md` (single file, rewritten each night).
 
@@ -21,7 +21,7 @@ This runs in the gap between the 9pm evening brief (closeout) and the 11pm refle
 Then call `read_today_transcript({date: "{today}"})` to read today's DMs. **Critical:** if Daniel replied to the 9pm evening brief's *"anything to prioritize for tomorrow?"* ask, his answer is your input — do not re-ask.
 
 Read on demand:
-- `tasks/tasks/P-NNN.md` for any P-task you cite in the plan — purpose and acceptance must be accurate.
+- `tasks/tasks/T-NNN.md` for any T-task you cite in the plan — purpose and acceptance must be accurate.
 - `goals/today-plan.md` (yesterday's version) — only for diff reference; you will overwrite it.
 
 ## 2. Identify Daniel's input
@@ -45,7 +45,7 @@ State (b) confirm:
 From your reply tonight, I'm reading: {parsed priority order or partial intent}.
 
 Confirm or adjust? Looking for:
-1. Priority order — which 2-3 P-tasks lead the day?
+1. Priority order — which 2-3 T-tasks lead the day?
 2. Anything to explicitly skip or defer?
 3. Notes Telos's morning tick should know (hardware decision, blocker, context shift)?
 ```
@@ -56,12 +56,12 @@ State (c) cold:
 
 Tomorrow's blocks: {one-line from weekly-schedule.md — protected deep-work windows, recurring commitments, workout slot}.
 
-Live priority-1 P-tasks: {ID — purpose, ID — purpose, ...} ({N} total).
+Live priority-1 T-tasks: {ID — purpose, ID — purpose, ...} ({N} total).
 
-Stale priority-1 candidates (idle ≥2 days): {P-NNN, P-NNN — or "none"}.
+Stale priority-1 candidates (idle ≥2 days): {T-NNN, T-NNN — or "none"}.
 
 **Your call:**
-1. Priority order — which 2-3 P-tasks lead the day?
+1. Priority order — which 2-3 T-tasks lead the day?
 2. Anything to skip or defer (calendar conflict, blocker, low energy)?
 3. Notes the morning tick should know (hardware, dependency, mood shift)?
 ```
@@ -81,13 +81,13 @@ Then **wait for Daniel's reply in the same conversation.** When he replies, pars
 
 ## Priorities (Daniel's call)
 
-1. {P-NNN} — {one-line purpose, drawn from the P-task file}
-2. {P-NNN} — {purpose}
-3. {P-NNN, optional} — {purpose}
+1. {T-NNN} — {one-line purpose, drawn from the T-task file}
+2. {T-NNN} — {purpose}
+3. {T-NNN, optional} — {purpose}
 
 ## Skip / defer
 
-- {P-NNN or topic Daniel named as off-limits, or "none stated"}
+- {T-NNN or topic Daniel named as off-limits, or "none stated"}
 
 ## Notes for morning tick
 
@@ -115,8 +115,8 @@ Capture stderr on each step. If push fails (e.g., divergence), surface in your f
 
 One sentence, English:
 
-- State (a/b confirmed): `"today-plan.md committed: {P-NNN}, {P-NNN}, {P-NNN}. 9am tick will read this as authoritative."`
-- State (c default fallback): `"No reply tonight — wrote a default plan to today-plan.md ({P-NNN}, {P-NNN}). Override in the morning if wrong."`
+- State (a/b confirmed): `"today-plan.md committed: {T-NNN}, {T-NNN}, {T-NNN}. 9am tick will read this as authoritative."`
+- State (c default fallback): `"No reply tonight — wrote a default plan to today-plan.md ({T-NNN}, {T-NNN}). Override in the morning if wrong."`
 - Push failed: append `" — push failed, file is local; please `git push` from laptop."`
 
 ## Voice rules

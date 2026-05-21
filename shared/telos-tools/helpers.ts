@@ -163,7 +163,7 @@ async function nextId(dir: string, prefix: string): Promise<string> {
     files = await fs.readdir(dir);
   } catch (e) {
     // ENOENT: dir doesn't exist yet (legitimate empty case — e.g., fresh
-    // proposals/ before any T-### lands). Anything else (EACCES, EIO,
+    // proposals/ before any P-### lands). Anything else (EACCES, EIO,
     // EPERM) is a real failure that must NOT silently produce prefix-001
     // collisions with existing files we couldn't read.
     if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
@@ -179,11 +179,11 @@ async function nextId(dir: string, prefix: string): Promise<string> {
 }
 
 export async function nextProposalId(): Promise<string> {
-  return nextId(PROPOSALS_DIR, 'T');
+  return nextId(PROPOSALS_DIR, 'P');
 }
 
 export async function nextTaskId(): Promise<string> {
-  return nextId(TASKS_FILES_DIR, 'P');
+  return nextId(TASKS_FILES_DIR, 'T');
 }
 
 export async function nextLearnId(): Promise<string> {

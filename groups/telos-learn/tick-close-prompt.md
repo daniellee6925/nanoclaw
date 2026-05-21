@@ -52,7 +52,7 @@ Use this structure verbatim. Sections branch by which path you took in step 2.
 **L-NNN graded:** {grade A/B/C}. {1-sentence rationale citing the criterion + answer}. evidence captured.
 
 {If branch B (abandon):}
-**L-NNN abandoned:** {1-sentence reason}. {If proposing a successor: "Proposed T-NNN as smaller successor."}
+**L-NNN abandoned:** {1-sentence reason}. {If proposing a successor: "Proposed P-NNN as smaller successor."}
 
 {If branch C (extend) — most common:}
 **L-NNN progress:** {1-line summary of where today landed}. **Tomorrow:** {next micro-goal — concrete, 1 sentence}.

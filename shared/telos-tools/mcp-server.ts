@@ -81,7 +81,7 @@ interface AssignTaskArgs {
   context: string;
 }
 
-// Direct task assignment (no prior proposal). Writes tasks/tasks/P-NNN.md.
+// Direct task assignment (no prior proposal). Writes tasks/tasks/T-NNN.md.
 // Post 2026-05-08 reorg: priority is plain numeric 1|2|3 (no T/P prefix).
 async function assignTask(args: AssignTaskArgs): Promise<ToolResponse> {
   if (args.pillar !== 'none' && ![1, 2, 3].includes(args.pillar as number)) {
@@ -93,7 +93,7 @@ async function assignTask(args: AssignTaskArgs): Promise<ToolResponse> {
   if (!args.purpose || args.purpose.length < 10) return err('purpose must be ≥10 chars');
   if (!args.acceptance || args.acceptance.length < 10) return err('acceptance must be ≥10 chars');
 
-  const id = await nextTaskId(); // → P-NNN
+  const id = await nextTaskId(); // → T-NNN
   const { date } = nowPT();
 
   const fm: Frontmatter = {
@@ -131,10 +131,10 @@ interface GradeTaskArgs {
   abandonment_reason?: string;
 }
 
-// Grade or abandon a P-task. Post 2026-05-08 reorg: 'rejected' is for proposals
+// Grade or abandon a T-task. Post 2026-05-08 reorg: 'rejected' is for proposals
 // only; for tasks the terminal-without-grade state is 'abandoned'.
 async function gradeTask(args: GradeTaskArgs): Promise<ToolResponse> {
-  if (!/^P-\d{3}$/.test(args.task_id)) return err('task_id must match P-NNN');
+  if (!/^T-\d{3}$/.test(args.task_id)) return err('task_id must match T-NNN');
   if (args.outcome !== 'graded' && args.outcome !== 'abandoned') {
     return err('outcome must be "graded" or "abandoned"');
   }
@@ -206,13 +206,13 @@ interface AcceptProposalArgs {
   context_addition?: string;
 }
 
-// Read T-### from PROPOSALS_DIR, inspect target field, spawn the right artifact:
-//   target=task       → new P-### in TASKS_FILES_DIR
+// Read P-### from PROPOSALS_DIR, inspect target field, spawn the right artifact:
+//   target=task       → new T-### in TASKS_FILES_DIR
 //   target=learn      → new L-### in LEARN_DIR
-//   target=curriculum → new file in CURRICULA_DIR (body of T-### becomes content)
-// In all cases the T-### itself is updated to status=accepted (audit trail).
+//   target=curriculum → new file in CURRICULA_DIR (body of P-### becomes content)
+// In all cases the P-### itself is updated to status=accepted (audit trail).
 async function acceptProposal(args: AcceptProposalArgs): Promise<ToolResponse> {
-  if (!/^T-\d{3}$/.test(args.proposal_id)) return err('proposal_id must match T-NNN');
+  if (!/^P-\d{3}$/.test(args.proposal_id)) return err('proposal_id must match P-NNN');
 
   const proposalPath = path.join(PROPOSALS_DIR, `${args.proposal_id}.md`);
   let content: string;
@@ -252,7 +252,7 @@ async function acceptProposal(args: AcceptProposalArgs): Promise<ToolResponse> {
       return err('target=task accept requires acceptance (≥10 chars, artifact-verifiable)');
     }
 
-    spawnedId = await nextTaskId(); // P-NNN
+    spawnedId = await nextTaskId(); // T-NNN
     spawnedPath = path.join(TASKS_FILES_DIR, `${spawnedId}.md`);
     const taskFm: Frontmatter = {
       id: spawnedId,
@@ -367,8 +367,8 @@ interface ProposeTaskArgs {
   proposed_by?: 'telos' | 'guya' | 'daniel';
 }
 
-// Create a proposal in tasks/proposals/T-NNN.md. The proposal is just an idea —
-// acceptance turns it into the right artifact (P-task, L-task, or curriculum).
+// Create a proposal in tasks/proposals/P-NNN.md. The proposal is just an idea —
+// acceptance turns it into the right artifact (T-task, L-task, or curriculum).
 // target_priority is a HINT; acceptProposal forces a fresh re-grade.
 async function proposeTask(args: ProposeTaskArgs): Promise<ToolResponse> {
   if (!['task', 'learn', 'curriculum'].includes(args.target)) {
@@ -382,7 +382,7 @@ async function proposeTask(args: ProposeTaskArgs): Promise<ToolResponse> {
   }
   if (!args.purpose || args.purpose.length < 10) return err('purpose must be ≥10 chars');
 
-  const id = await nextProposalId(); // T-NNN
+  const id = await nextProposalId(); // P-NNN
   const { date } = nowPT();
   const author = args.proposed_by ?? 'telos';
 
@@ -919,7 +919,7 @@ const TOOLS = [
   {
     name: 'assign_task',
     description:
-      'Create a new P-task in tasks/tasks/P-NNN.md with structured frontmatter. Auto-increments NNN, validates pillar (1/2/3/none) and priority (1/2/3 numeric — no T/P prefix post 2026-05-08 reorg), commits, pushes. Use when the tick decision is to add new work for Daniel directly (no prior proposal). At equal priority, pillar work wins over pillar=none. To create a proposal instead, use propose_task. To accept a Guya-proposed T-task, use accept_proposal.',
+      'Create a new T-task in tasks/tasks/T-NNN.md with structured frontmatter. Auto-increments NNN, validates pillar (1/2/3/none) and priority (1/2/3 numeric — no T/P prefix post 2026-05-08 reorg), commits, pushes. Use when the tick decision is to add new work for Daniel directly (no prior proposal). At equal priority, pillar work wins over pillar=none. To create a proposal instead, use propose_task. To accept a Guya-proposed P-proposal, use accept_proposal.',
     inputSchema: {
       type: 'object',
       required: ['pillar', 'priority', 'purpose', 'acceptance', 'context'],
@@ -945,12 +945,12 @@ const TOOLS = [
   {
     name: 'grade_task',
     description:
-      'Grade or abandon a P-task in terminal state. Reads existing tasks/tasks/P-NNN.md, updates frontmatter only (preserves body), commits, pushes. outcome="graded" requires grade (A/B/C) and grade_evidence. outcome="abandoned" requires abandonment_reason. Post-reorg note: "rejected" is for proposals only; for tasks the terminal-without-grade state is "abandoned".',
+      'Grade or abandon a T-task in terminal state. Reads existing tasks/tasks/T-NNN.md, updates frontmatter only (preserves body), commits, pushes. outcome="graded" requires grade (A/B/C) and grade_evidence. outcome="abandoned" requires abandonment_reason. Post-reorg note: "rejected" is for proposals only; for tasks the terminal-without-grade state is "abandoned".',
     inputSchema: {
       type: 'object',
       required: ['task_id', 'outcome'],
       properties: {
-        task_id: { type: 'string', pattern: '^P-\\d{3}$', description: 'e.g. P-001' },
+        task_id: { type: 'string', pattern: '^T-\\d{3}$', description: 'e.g. T-001' },
         outcome: { type: 'string', enum: ['graded', 'abandoned'] },
         grade: { type: 'string', enum: ['A', 'B', 'C'], description: 'Required when outcome=graded' },
         grade_evidence: { type: 'string', minLength: 10, description: 'Required when outcome=graded — cite artifact (commit SHA, file path) + rubric criterion met.' },
@@ -961,12 +961,12 @@ const TOOLS = [
   {
     name: 'accept_proposal',
     description:
-      'Accept a T-proposal in tasks/proposals/T-NNN.md and spawn the right artifact based on its target field. target=task spawns P-NNN (requires priority + acceptance, optional pillar override). target=learn spawns L-NNN (requires priority + curriculum + module + success + by). target=curriculum promotes the proposal body into tasks/learn/curricula/<curriculum_id>.md. The T-NNN itself is marked status=accepted (audit trail). Pick priority fresh — the proposal hint is informational, not a contract.',
+      'Accept a P-proposal in tasks/proposals/P-NNN.md and spawn the right artifact based on its target field. target=task spawns T-NNN (requires priority + acceptance, optional pillar override). target=learn spawns L-NNN (requires priority + curriculum + module + success + by). target=curriculum promotes the proposal body into tasks/learn/curricula/<curriculum_id>.md. The P-NNN itself is marked status=accepted (audit trail). Pick priority fresh — the proposal hint is informational, not a contract.',
     inputSchema: {
       type: 'object',
       required: ['proposal_id'],
       properties: {
-        proposal_id: { type: 'string', pattern: '^T-\\d{3}$', description: 'e.g. T-005' },
+        proposal_id: { type: 'string', pattern: '^P-\\d{3}$', description: 'e.g. P-005' },
         priority: { type: 'integer', enum: [1, 2, 3], description: 'Required for target=task or target=learn. Plain numeric.' },
         pillar: {
           oneOf: [{ type: 'integer', enum: [1, 2, 3] }, { type: 'string', enum: ['none'] }],
@@ -985,7 +985,7 @@ const TOOLS = [
   {
     name: 'propose_task',
     description:
-      'Propose work for Daniel\'s consideration — writes T-NNN.md to tasks/proposals/. The proposal is just an idea; accept_proposal turns it into the right artifact (P-task, L-task, or curriculum). target_priority is a HINT — accept_proposal forces a fresh re-grade. Use when surfacing an opportunity that isn\'t ready to be assigned outright (needs Daniel\'s input on shape/timing).',
+      'Propose work for Daniel\'s consideration — writes P-NNN.md to tasks/proposals/. The proposal is just an idea; accept_proposal turns it into the right artifact (T-task, L-task, or curriculum). target_priority is a HINT — accept_proposal forces a fresh re-grade. Use when surfacing an opportunity that isn\'t ready to be assigned outright (needs Daniel\'s input on shape/timing).',
     inputSchema: {
       type: 'object',
       required: ['target', 'target_pillar', 'target_priority', 'purpose', 'context'],

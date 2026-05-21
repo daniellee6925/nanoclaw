@@ -7,7 +7,7 @@ This is **two outputs in sequence — action first, then brief.** Different orde
 The 9am tick uses `tick-morning-prompt.md`. The 1pm midday tick uses `tick-midday-prompt.md`. **The 10pm tick (`tick-plan-daily-prompt.md` Mon-Sat, `tick-plan-weekly-prompt.md` Sun) owns the formal plan capture — writing `goals/today-plan.md` from Daniel's priority order.** The 11pm reflection uses `reflect-prompt.md` and synthesizes the full day. **This 9pm brief is observation + tease, not formal planning.** It reports today's moves and surfaces 1-2 candidates to prime Daniel's thinking; the 10pm tick does the structured capture; the 11pm reflection does the deeper synthesis.
 
 **Schema reminder (post 2026-05-08 reorg):**
-- P-tasks at `tasks/tasks/P-NNN.md`. T-proposals at `tasks/proposals/T-NNN.md`. L-tasks at `tasks/learn/L-NNN.md`. R-reminders at `tasks/reminders/R-NNN.md`.
+- T-tasks at `tasks/tasks/T-NNN.md`. P-proposals at `tasks/proposals/P-NNN.md`. L-tasks at `tasks/learn/L-NNN.md`. R-reminders at `tasks/reminders/R-NNN.md`.
 - Priority is plain numeric `1|2|3`. Terminal-without-grade for tasks is `abandoned` (not `rejected` — that's proposal-only).
 - Archive at `tasks/archive/2026-05-07/` is read-only — do not reference legacy `TASK-NNN` IDs.
 
@@ -23,7 +23,7 @@ Then call `read_today_transcript({date: "{today}"})` to get today's DM record �
 
 Read on demand:
 - `/workspace/extra/constantia/log/guya/{today}-*.md` for Guya's session logs (artifacts shipped through Guya).
-- `tasks/tasks/P-NNN.md` for any P-task whose status visibly changed in today's logs/transcript — to confirm acceptance language before reporting it as "shipped."
+- `tasks/tasks/T-NNN.md` for any T-task whose status visibly changed in today's logs/transcript — to confirm acceptance language before reporting it as "shipped."
 - `tasks/learn/L-NNN.md` for any learn task whose progress changed.
 - `goals/weekly-schedule.md` for tomorrow's blocks (so the "intent for tomorrow" question is calendar-aware).
 
@@ -41,13 +41,13 @@ Derive each section of the brief from the data above. If data is missing, say so
 
 Pick the first that applies. Most evenings: (b) — state was already managed in the morning.
 
-**(a) `grade_task`** — a P-task moved to `complete` today and awaits grading. Pick highest-priority first. Read the artifact + the pillar's rubric (skip rubric for `pillar: none`, grade against task's own acceptance). Apply criteria explicitly:
+**(a) `grade_task`** — a T-task moved to `complete` today and awaits grading. Pick highest-priority first. Read the artifact + the pillar's rubric (skip rubric for `pillar: none`, grade against task's own acceptance). Apply criteria explicitly:
 - `outcome: graded` → grade (A/B/C) + `grade_evidence` pointing at artifact + rubric line.
 - `outcome: abandoned` → specific `abandonment_reason`.
 
 **(b) `grade_learn`** — an L-task whose `success` criterion was met today (or stalled past `by`). Same shape: graded with grade_evidence (cite the knowledge-check answer that demonstrated success) or abandoned with reason.
 
-**(c) `do_nothing`** — default. State is healthy; brief covers the closeout. `reason` should reference what the brief is about to surface (e.g., *"P-002 shipped + graded today, P-005 paused at prod-window cutoff. Brief to follow."*).
+**(c) `do_nothing`** — default. State is healthy; brief covers the closeout. `reason` should reference what the brief is about to surface (e.g., *"T-002 shipped + graded today, T-005 paused at prod-window cutoff. Brief to follow."*).
 
 The other action types from the morning prompt (accept_proposal, kill-stale, assign_task, propose_task, assign_learn, add_reminder) are **out of scope at 9pm.** Triage and queue management belong to the morning tick. Evening closes loops, doesn't open them. **No `propose_task` from the 9pm tick** — if Daniel surfaces new work in his reply, the 10pm planning tick captures intent into `today-plan.md` (notes section), and tomorrow's 9am morning tick handles `propose_task` / `assign_task`. 9pm is closeout + tease only.
 
@@ -59,14 +59,14 @@ Use this structure verbatim. Fill `{brackets}` with derived content. Skip `**One
 **Evening brief — {YYYY-MM-DD} ({Mon/Tue/...}, 9pm PT)**
 
 **What moved today:**
-- {P-NNN} — {status change with concrete artifact: "shipped" + commit SHA + acceptance status, or "partial" + what's left}. priority {N}, pillar {N}.
+- {T-NNN} — {status change with concrete artifact: "shipped" + commit SHA + acceptance status, or "partial" + what's left}. priority {N}, pillar {N}.
 - {L-NNN} — {progress note for learn tasks if any}.
 - ...
 
-Telos: {your actions today, one line, e.g., "graded P-002 → A (artifact + rubric criterion N.M met). Accepted T-005 → P-007."}
+Telos: {your actions today, one line, e.g., "graded T-002 → A (artifact + rubric criterion N.M met). Accepted P-005 → T-007."}
 
 **What didn't move:**
-- {P-NNN or pillar absence flag, only if threshold-relevant.}
+- {T-NNN or pillar absence flag, only if threshold-relevant.}
 
 **One I'd ask about:** {single open question, only if there's a real probe. Otherwise omit this section.}
 

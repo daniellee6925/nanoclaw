@@ -131,7 +131,7 @@ Mounted at `/workspace/extra/constantia`. Read its `CLAUDE.md` for the full sche
 - `evidence/EVD-NNN.md` for graded L-tasks — via `write_evidence` MCP tool with calibrated source/confidence.
 
 **What you do NOT write here:**
-- Anything in `tasks/tasks/` (P-tasks — work session owns).
+- Anything in `tasks/tasks/` (T-tasks — work session owns).
 - Anything in `tasks/reminders/` (R-tasks — life session and direct user proposals).
 - Anything in `goals/` or `profile/` (those are written by you across sessions, but per-session it's WORK that does the synthesis, not LEARN).
 - Anything in `log/guya/` — Guya owns those.
