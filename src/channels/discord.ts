@@ -7,6 +7,7 @@ import { createDiscordAdapter } from '@chat-adapter/discord';
 import { readEnvFile } from '../env.js';
 import { createChatSdkBridge, type ReplyContext } from './chat-sdk-bridge.js';
 import { registerChannelAdapter } from './channel-registry.js';
+import { bareDiscordLinks } from './format-links.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function extractReplyContext(raw: Record<string, any>): ReplyContext | null {
@@ -33,6 +34,10 @@ registerChannelAdapter('discord', {
       botToken: env.DISCORD_BOT_TOKEN,
       extractReplyContext,
       supportsThreads: true,
+      // Discord doesn't render Markdown masked links ([text](url)) in normal
+      // bot messages — only in embeds — so they show as dead literal text.
+      // Rewrite them to bare/labelled URLs Discord auto-links. See issue #3.
+      transformOutboundText: bareDiscordLinks,
       // Discord rejects messages >2000 chars. Without this the bridge silently
       // truncates long outputs (morning briefs, reflections, capture summaries).
       // splitForLimit() splits on paragraph → line → space → hard-char.
