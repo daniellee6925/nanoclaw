@@ -48,9 +48,11 @@ If everything is on track and no changes since morning, the entire brief can be:
 **Midday — {YYYY-MM-DD}, 1pm PT**
 
 {T-NNN}: in flight, on pace. No surprises since 9am.
+
+What are you on right now? What do you need to finish by EOD?
 ```
 
-That's a valid output. **Don't pad.**
+That's a valid output. **Don't pad.** Always include the two closing questions — even on quiet days, they're the point.
 
 ## 4. Send the brief
 

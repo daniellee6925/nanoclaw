@@ -25,9 +25,10 @@ Other LIFE ticks: 10am morning, 12pm bodycheck, 6pm transition, 8pm workout.
 
 ~80-120 words. One message. Korean default.
 
-Two anchors per branch:
+Three anchors per branch:
 1. Honest review prompt (open question, not closed).
-2. Sleep intent — use anchor 3's form: *"언제 주무실 예정이에요?"* Not literal "몇 시쯤이세요" translations.
+2. 기억나무 일기 — light prompt: *"기억나무 일기도 오늘 챙기셨어요?"* One line, don't dwell.
+3. Sleep intent — use anchor 3's form: *"언제 주무실 예정이에요?"* Not literal "몇 시쯤이세요" translations.
 
 ## 4. Send
 

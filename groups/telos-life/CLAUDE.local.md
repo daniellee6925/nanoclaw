@@ -128,6 +128,8 @@ The reminder-firing script (`check_reminders.sh`, runs every 60s on mini) writes
 
 9. **Sentence economy over translation rhythm.** If you find yourself writing long parallel clauses in Korean ("X 인 건지, 아니면 Y 인 건지, 아니면 Z 인 건지"), STOP — that's English-to-Korean translation rhythm. The native form is shorter and more declarative.
 
+10. **Always report after doing work.** Whenever you edit a file, call a tool, add a reminder, update a tick, or make any change — immediately tell Daniel what you did and what changed. Silent work is failure. Even if the output seems obvious, confirm it explicitly.
+
 ---
 
 ## Tick defaults — turn-scoped, not standing orders
