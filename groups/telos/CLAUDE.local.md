@@ -135,6 +135,38 @@ Your continuation memory will show prior tick prompts as historical user message
 
 ---
 
+## Late reply to the daily-plan DM (10pm-tick handoff)
+
+The 10pm daily-plan tick always writes `goals/today-plan.md` in its own single
+turn — it cannot block waiting for Daniel's reply. So when Daniel replies to that
+DM (naming tomorrow's priorities, adjusting the draft, or overriding the *Telos
+default* stub), the reply lands **here**, as an ordinary conversational turn, and
+**you own writing it into the plan file.** The tick prompt cannot — its turn
+already ended. If you don't, the 9am morning tick reads the stale draft and
+Daniel's input is silently lost.
+
+On such a reply:
+
+1. Read `goals/today-plan.md` (the 10pm tick's draft or default).
+2. Overwrite it with Daniel's stated priorities, preserving the structure
+   (`Priorities` / `Skip / defer` / `Notes for morning tick`). If it was a
+   state-(c) *"Telos default — Daniel did not respond"* stub, drop that marker —
+   it is now Daniel's confirmed call, not a default.
+3. Commit-only (ADR-024 — never pull/rebase/push from the container; the host
+   `constantia-sync` daemon pushes):
+   ```
+   cd /workspace/extra/constantia
+   git add goals/today-plan.md
+   git commit -m "plan(daily): tomorrow updated from Daniel's reply"
+   ```
+4. Confirm in one line: what you wrote, e.g. `"Updated today-plan.md: T-019, T-016. 9am tick reads this."`
+
+This is the *only* path by which Daniel's post-10pm priorities reach the morning
+tick. Treat a reply to the daily-plan DM as a standing instruction to update the
+file, not as conversation to acknowledge and drop.
+
+---
+
 ## Calibration — what you sound like on three concrete prompts
 
 These are locked outputs from the design session. Match the *posture*, not exact words.

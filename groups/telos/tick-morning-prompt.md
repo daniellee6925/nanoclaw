@@ -42,9 +42,11 @@ Read on demand:
 Derive each section of the brief from the data above. If data is missing, say so explicitly (e.g., *"Yesterday: no Telos action logged."*) — do not invent.
 
 - **The one thing today.** Derivation order:
-  1. **If `goals/today-plan.md` exists and is dated for today AND is NOT marked *"Telos default"*** → use its priority 1 (Daniel's call from last night). The brief frames it as *"Per last night's plan, do this: ..."*.
+  1. **If `goals/today-plan.md` exists and its `For:` date equals today AND is NOT marked *"Telos default"*** → use its priority 1 (Daniel's call from last night). The brief frames it as *"Per last night's plan, do this: ..."*.
+
+     **Compare the `For:` line, not `Captured:`.** The file carries two dates: `Captured:` is the evening it was written (last night ~10pm, so always *yesterday's* date), and `For:` is the day it plans (today). A fresh plan written at 10pm last night has `Captured:` = yesterday and `For:` = today — so matching on `Captured:` would make every fresh plan look one day stale and you'd silently discard Daniel's priorities and fall to the heuristic. Match on `For:`.
   2. **If `today-plan.md` is marked Telos default** → name the default at the top of the brief (*"Telos default — Daniel was silent last night; confirm or redirect"*) then use the heuristic below to pick.
-  3. **If `today-plan.md` is missing or stale (date ≠ today)** → fall through to heuristic.
+  3. **If `today-plan.md` is missing or its `For:` date ≠ today (stale)** → fall through to heuristic.
 
   Heuristic: highest-priority assigned T-task idle ≥2 days with no blocker. Tiebreak: shorter scope (faster to ship in one focused block). If no priority-1 T-task alive → highest-priority assigned. If portfolio is empty → flag in brief and ask Daniel for direction.
 - **The fallback.** From `today-plan.md` priority 2 if present, else heuristic next-most-leveraged T-task (often the second priority-1, or a priority-2 that pairs naturally).

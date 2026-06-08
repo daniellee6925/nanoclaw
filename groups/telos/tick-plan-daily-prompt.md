@@ -26,49 +26,24 @@ Read on demand:
 
 ## 2. Identify Daniel's input
 
-Three possible states. Handle each:
+**Single-turn rule (load-bearing).** This is a cron-fired tick. It runs as ONE
+turn and cannot block waiting for Daniel to reply — when Daniel replies, that is
+a *separate* turn handled by the operating contract, not a continuation of this
+prompt. So the ordering is the same in every state: **write `today-plan.md` this
+turn from the best data you have, THEN DM.** You never DM a question and wait for
+the answer to write the file — the file always exists by the end of this turn,
+even if it's a default. A reply that lands later overwrites it via the operating
+contract's "late reply to the daily-plan DM" rule; that is not your job here.
 
-**(a) Daniel already gave priorities in today's transcript.** The 9pm evening brief's ask got a substantive reply (priority order, what to skip, blockers). Parse and proceed to step 4. Do NOT DM a re-ask — it pings Daniel twice for the same plan.
+Three possible states. In all three you write the file, then send the matching DM:
 
-**(b) Daniel's response was ambiguous or partial.** Reply mentioned tomorrow but didn't name a clear priority order. DM a single tight follow-up surfacing what you have and asking to confirm — see step 3.
+**(a) Daniel already gave priorities in today's transcript.** The 9pm evening brief's ask got a substantive reply (priority order, what to skip, blockers). Parse, write the plan (step 3), commit (step 4), DM the confirm (step 5 / state a). Do NOT DM a re-ask — it pings Daniel twice for the same plan.
 
-**(c) Daniel did not reply to the evening brief.** Silence. DM the structured planning prompt — see step 3.
+**(b) Daniel's response was ambiguous or partial.** Reply mentioned tomorrow but didn't name a clear priority order. Write the plan from your best reading of what he said (step 3), commit (step 4), then DM what you drafted and invite a correction (step 5 / state b). Do not withhold the file pending confirmation.
 
-## 3. DM the planning prompt (skip if state-a)
+**(c) Daniel did not reply to the evening brief.** Silence. Write the default plan (step 3 fallback, marked *Telos default*), commit (step 4), then DM the structured planning prompt so he can reply with his real call (step 5 / state c).
 
-Match the case. **One DM, structured, English. No greeting, no sign-off.**
-
-State (b) confirm:
-```
-**Tomorrow's plan — {tomorrow YYYY-MM-DD} ({Mon/Tue/...})**
-
-From your reply tonight, I'm reading: {parsed priority order or partial intent}.
-
-Confirm or adjust? Looking for:
-1. Priority order — which 2-3 T-tasks lead the day?
-2. Anything to explicitly skip or defer?
-3. Notes Telos's morning tick should know (hardware decision, blocker, context shift)?
-```
-
-State (c) cold:
-```
-**Tomorrow's plan — {tomorrow YYYY-MM-DD} ({Mon/Tue/...})**
-
-Tomorrow's blocks: {one-line from weekly-schedule.md — protected deep-work windows, recurring commitments, workout slot}.
-
-Live priority-1 T-tasks: {ID — purpose, ID — purpose, ...} ({N} total).
-
-Stale priority-1 candidates (idle ≥2 days): {T-NNN, T-NNN — or "none"}.
-
-**Your call:**
-1. Priority order — which 2-3 T-tasks lead the day?
-2. Anything to skip or defer (calendar conflict, blocker, low energy)?
-3. Notes the morning tick should know (hardware, dependency, mood shift)?
-```
-
-Then **wait for Daniel's reply in the same conversation.** When he replies, parse and proceed to step 4. If he doesn't reply within the conversation, write a stub plan (step 4 fallback) and DM that you wrote a stub from defaults.
-
-## 4. Write `goals/today-plan.md`
+## 3. Write `goals/today-plan.md`
 
 **Overwrite the file with this exact structure.** Use `Write` tool on path `/workspace/extra/constantia/goals/today-plan.md`. Heading + frontmatter optional — content matters, format matters.
 
@@ -97,7 +72,7 @@ Then **wait for Daniel's reply in the same conversation.** When he replies, pars
 
 **Fallback** (Daniel didn't reply at all): write the same file with priorities populated by the heuristic the morning tick would use otherwise (highest-P idle ≥2 days, tiebreak by shortest scope). Mark `Priorities (Telos default — Daniel did not respond)` so the morning tick knows this is unconfirmed.
 
-## 5. Commit and push
+## 4. Commit (commit-only — the host daemon pushes)
 
 Run via Bash:
 
@@ -105,19 +80,71 @@ Run via Bash:
 cd /workspace/extra/constantia
 git add goals/today-plan.md
 git commit -m "plan(daily): tomorrow {YYYY-MM-DD} captured by 10pm tick"
-git pull --rebase --autostash
-git push
 ```
 
-Capture stderr on each step. If push fails (e.g., divergence), surface in your final DM so Daniel can resolve from laptop. Do not retry destructively.
+**Do NOT run `git pull`, `git rebase`, or `git push` here.** You are inside the
+container, where `/workspace/extra/constantia` is a Docker bind mount. Per
+ADR-024, `git rebase` misreads working-tree state through the virtio-fs layer
+and aborts — that failure mode silently stranded 21 commits for 2 days. Every
+MCP tool obeys this by committing through `commitOnly(message, paths)` and never
+pushing; this prompt is the one writer that still wrote the file by hand, so it
+commits by hand — but with the **same commit-only contract**. The host-side
+`constantia-sync` daemon polls every 5s and owns fetch + rebase + push on the
+mini's native filesystem, where git behaves correctly.
 
-## 6. Confirm in DM
+Capture stderr on the add/commit. If the **commit** itself fails (e.g.,
+pre-commit hook rejects), surface it in your final DM and leave the file in the
+working tree for manual reconcile — never `git reset --hard`. You do not see or
+report push status; that is the daemon's job, and its health is surfaced to
+Daniel separately via the session-start heartbeat check.
 
-One sentence, English:
+## 5. DM — report what you committed, then stop
 
-- State (a/b confirmed): `"today-plan.md committed: {T-NNN}, {T-NNN}, {T-NNN}. 9am tick will read this as authoritative."`
-- State (c default fallback): `"No reply tonight — wrote a default plan to today-plan.md ({T-NNN}, {T-NNN}). Override in the morning if wrong."`
-- Push failed: append `" — push failed, file is local; please `git push` from laptop."`
+The file is already written and committed. **Send exactly ONE DM** reporting it
+and inviting a correction. **Do not wait for a reply — the turn ends after this
+DM.** A cron tick cannot block for human input. If Daniel replies later (even a
+minute later), that is a new conversational turn; the operating contract's
+*"late reply to the daily-plan DM"* rule overwrites `today-plan.md` and
+re-commits. This prompt's job is done once the file is committed and the DM sent.
+
+**One DM, structured, English. No greeting, no sign-off.** Match the state:
+
+State (a) — clear priorities, one-line confirm:
+```
+today-plan.md committed: {T-NNN}, {T-NNN}, {T-NNN}. The 9am tick reads this as authoritative.
+```
+
+State (b) — drafted from his partial reply, inviting correction:
+```
+**Tomorrow's plan — {tomorrow YYYY-MM-DD} ({Mon/Tue/...})**
+
+From your reply tonight I drafted: {parsed priority order or partial intent}. Committed to today-plan.md.
+
+Reply to adjust before the 9am tick:
+1. Priority order — which 2-3 T-tasks lead the day?
+2. Anything to explicitly skip or defer?
+3. Notes Telos's morning tick should know (hardware decision, blocker, context shift)?
+```
+
+State (c) — default already committed, asking for his real call:
+```
+**Tomorrow's plan — {tomorrow YYYY-MM-DD} ({Mon/Tue/...})**
+
+No priorities from you tonight — I committed a default to today-plan.md (highest-priority idle work). Reply to overwrite it; otherwise the 9am tick treats it as unconfirmed.
+
+Tomorrow's blocks: {one-line from weekly-schedule.md — protected deep-work windows, recurring commitments, workout slot}.
+
+Live priority-1 T-tasks: {ID — purpose, ID — purpose, ...} ({N} total).
+
+Stale priority-1 candidates (idle ≥2 days): {T-NNN, T-NNN — or "none"}.
+
+**Your call:**
+1. Priority order — which 2-3 T-tasks lead the day?
+2. Anything to skip or defer (calendar conflict, blocker, low energy)?
+3. Notes the morning tick should know (hardware, dependency, mood shift)?
+```
+
+**Commit failed** (any state): append to the DM `" — commit failed (see error), file is in the working tree; reconcile from laptop."` You never push, so there is no "push failed" case to report — the host daemon owns push.
 
 ## Voice rules
 
