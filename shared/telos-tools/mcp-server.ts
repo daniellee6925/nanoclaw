@@ -53,6 +53,7 @@ import {
   err,
   extractText,
   formatResult,
+  isUnit123,
   nextEvidenceId,
   nextLearnId,
   nextProposalId,
@@ -84,10 +85,10 @@ interface AssignTaskArgs {
 // Direct task assignment (no prior proposal). Writes tasks/tasks/T-NNN.md.
 // Post 2026-05-08 reorg: priority is plain numeric 1|2|3 (no T/P prefix).
 async function assignTask(args: AssignTaskArgs): Promise<ToolResponse> {
-  if (args.pillar !== 'none' && ![1, 2, 3].includes(Number(args.pillar))) {
+  if (args.pillar !== 'none' && !isUnit123(args.pillar)) {
     return err('pillar must be 1, 2, 3, or "none"');
   }
-  if (![1, 2, 3].includes(Number(args.priority))) {
+  if (!isUnit123(args.priority)) {
     return err('priority must be 1, 2, or 3');
   }
   if (!args.purpose || args.purpose.length < 10) return err('purpose must be ≥10 chars');
@@ -241,11 +242,11 @@ async function acceptProposal(args: AcceptProposalArgs): Promise<ToolResponse> {
   let headline = '';
 
   if (target === 'task') {
-    if (!args.priority || ![1, 2, 3].includes(Number(args.priority))) {
+    if (!args.priority || !isUnit123(args.priority)) {
       return err('target=task accept requires priority (1, 2, or 3) — re-grade fresh, do not auto-carry the proposal hint');
     }
     const pillar = args.pillar ?? pfm.target_pillar;
-    if (pillar !== 'none' && ![1, 2, 3].includes(Number(pillar))) {
+    if (pillar !== 'none' && !isUnit123(pillar)) {
       return err('pillar must be 1, 2, 3, or "none"');
     }
     if (!args.acceptance || args.acceptance.length < 10) {
@@ -274,11 +275,11 @@ async function acceptProposal(args: AcceptProposalArgs): Promise<ToolResponse> {
     await writeAtomic(spawnedPath, serializeFrontmatter(taskFm) + pbody.trimEnd() + ctxNote);
     headline = (pfm.purpose ?? '').split('\n')[0].slice(0, 60);
   } else if (target === 'learn') {
-    if (!args.priority || ![1, 2, 3].includes(Number(args.priority))) {
+    if (!args.priority || !isUnit123(args.priority)) {
       return err('target=learn accept requires priority (1, 2, or 3)');
     }
     const pillar = args.pillar ?? pfm.target_pillar;
-    if (pillar !== 'none' && ![1, 2, 3].includes(Number(pillar))) {
+    if (pillar !== 'none' && !isUnit123(pillar)) {
       return err('pillar must be 1, 2, 3, or "none"');
     }
     if (!args.curriculum) return err('target=learn accept requires curriculum (id, e.g. "bytebytego-systems")');
@@ -374,10 +375,10 @@ async function proposeTask(args: ProposeTaskArgs): Promise<ToolResponse> {
   if (!['task', 'learn', 'curriculum'].includes(args.target)) {
     return err('target must be one of: task, learn, curriculum');
   }
-  if (args.target_pillar !== 'none' && ![1, 2, 3].includes(Number(args.target_pillar))) {
+  if (args.target_pillar !== 'none' && !isUnit123(args.target_pillar)) {
     return err('target_pillar must be 1, 2, 3, or "none"');
   }
-  if (![1, 2, 3].includes(Number(args.target_priority))) {
+  if (!isUnit123(args.target_priority)) {
     return err('target_priority must be 1, 2, or 3');
   }
   if (!args.purpose || args.purpose.length < 10) return err('purpose must be ≥10 chars');
@@ -433,10 +434,10 @@ interface AssignLearnArgs {
 
 // Direct learn-task assignment (no prior proposal). Writes tasks/learn/L-NNN.md.
 async function assignLearn(args: AssignLearnArgs): Promise<ToolResponse> {
-  if (args.pillar !== 'none' && ![1, 2, 3].includes(Number(args.pillar))) {
+  if (args.pillar !== 'none' && !isUnit123(args.pillar)) {
     return err('pillar must be 1, 2, 3, or "none"');
   }
-  if (![1, 2, 3].includes(Number(args.priority))) {
+  if (!isUnit123(args.priority)) {
     return err('priority must be 1, 2, or 3');
   }
   if (!args.curriculum) return err('curriculum required (id, e.g. "bytebytego-systems")');

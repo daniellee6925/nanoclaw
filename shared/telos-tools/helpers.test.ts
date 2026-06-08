@@ -22,6 +22,7 @@ import {
   ok,
   err,
   formatResult,
+  isUnit123,
 } from './helpers';
 
 describe('serializeFrontmatter', () => {
@@ -218,25 +219,53 @@ describe('ok / err', () => {
 });
 
 describe('formatResult', () => {
-  test('pushed=true emits two lines (no error line)', () => {
-    expect(formatResult('headline', { sha: 'abc123', pushed: true })).toBe(
-      'headline\nCommit: abc123\nPushed: true',
+  // Updated 2026-06-08 to the post-ADR-024 contract: commitOnly replaced
+  // commitAndPush, CommitResult dropped pushed/pushError, and formatResult now
+  // reads only .sha and always renders the daemon-push line. The old
+  // pushed/pushError assertions were stale (testing removed behavior).
+  test('renders headline, commit sha, and the commit-only daemon line', () => {
+    expect(formatResult('headline', { sha: 'abc123', committed: true })).toBe(
+      'headline\nCommit: abc123\nCommitted locally; constantia-sync daemon will push within 5s.',
     );
   });
 
-  test('pushed=false with pushError appends a fourth line', () => {
-    expect(
-      formatResult('headline', {
-        sha: 'abc123',
-        pushed: false,
-        pushError: 'remote ahead',
-      }),
-    ).toBe('headline\nCommit: abc123\nPushed: false\nPush error: remote ahead');
+  test('output is push-status-agnostic (the daemon owns push, not formatResult)', () => {
+    expect(formatResult('another', { sha: 'def456', committed: true })).toBe(
+      'another\nCommit: def456\nCommitted locally; constantia-sync daemon will push within 5s.',
+    );
+  });
+});
+
+describe('isUnit123', () => {
+  // Regression guard for guya#5: MCP delivers union-typed args (pillar is
+  // `integer | "none"`) as STRINGS, so the range check must coerce. A revert to
+  // a bare `[1,2,3].includes(v)` or the no-op `v as number` cast would flip the
+  // string cases below to false and fail here. The original bug compiled clean,
+  // so this behavioral test is the only thing that catches the regression.
+  test('accepts numeric strings (the MCP wire format that broke assign_task)', () => {
+    expect(isUnit123('1')).toBe(true);
+    expect(isUnit123('2')).toBe(true);
+    expect(isUnit123('3')).toBe(true);
   });
 
-  test('pushed=false without pushError omits the error line', () => {
-    expect(formatResult('headline', { sha: 'abc123', pushed: false })).toBe(
-      'headline\nCommit: abc123\nPushed: false',
-    );
+  test('accepts integers', () => {
+    expect(isUnit123(1)).toBe(true);
+    expect(isUnit123(2)).toBe(true);
+    expect(isUnit123(3)).toBe(true);
+  });
+
+  test('rejects out-of-range values', () => {
+    expect(isUnit123(0)).toBe(false);
+    expect(isUnit123(4)).toBe(false);
+    expect(isUnit123('0')).toBe(false);
+    expect(isUnit123('4')).toBe(false);
+  });
+
+  test('rejects non-numeric and empty inputs', () => {
+    expect(isUnit123('none')).toBe(false);
+    expect(isUnit123('abc')).toBe(false);
+    expect(isUnit123('')).toBe(false); // Number('') === 0 → out of range
+    expect(isUnit123(undefined)).toBe(false);
+    expect(isUnit123(null)).toBe(false);
   });
 });

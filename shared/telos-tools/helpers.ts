@@ -256,6 +256,21 @@ export function formatResult(headline: string, result: CommitResult): string {
   return `${headline}\nCommit: ${result.sha}\nCommitted locally; constantia-sync daemon will push within 5s.`;
 }
 
+/**
+ * True if `v` is — or coerces to — 1, 2, or 3, the shared pillar/priority range.
+ * Single source of truth for that check across every task/proposal/learn tool.
+ *
+ * Why `Number()` and not a bare `[1,2,3].includes(v)`: MCP delivers a tool arg
+ * whose JSON-schema type is a union (pillar is `integer | "none"`) as a STRING
+ * ("2", not 2). A bare includes — or the no-op `v as number` cast it replaced —
+ * then rejects every valid value. Number() does the runtime coercion the cast
+ * only pretended to. Number(undefined|null|"none"|"abc")→NaN and Number("")→0
+ * both fall outside [1,2,3], so junk is still rejected. Regression guard: guya#5.
+ */
+export function isUnit123(v: unknown): boolean {
+  return [1, 2, 3].includes(Number(v));
+}
+
 // ---- Transcript helpers ----------------------------------------------------
 
 export interface DBRow {
