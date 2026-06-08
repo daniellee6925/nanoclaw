@@ -1,0 +1,4 @@
+# Guard shared/telos-tools — it's bun-run, so it's outside both tsc (src-only)
+# and vitest (`pnpm test`). Without this, its tests only ran by hand and rotted
+# silently (the formatResult tests failed unnoticed for ~3 weeks). See guya#5.
+pnpm run test:tools

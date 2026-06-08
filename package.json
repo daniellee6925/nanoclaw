@@ -21,7 +21,8 @@
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:tools": "bun test shared/telos-tools"
   },
   "dependencies": {
     "@chat-adapter/discord": "4.26.0",
