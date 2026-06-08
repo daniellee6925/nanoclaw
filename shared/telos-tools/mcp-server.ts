@@ -84,10 +84,10 @@ interface AssignTaskArgs {
 // Direct task assignment (no prior proposal). Writes tasks/tasks/T-NNN.md.
 // Post 2026-05-08 reorg: priority is plain numeric 1|2|3 (no T/P prefix).
 async function assignTask(args: AssignTaskArgs): Promise<ToolResponse> {
-  if (args.pillar !== 'none' && ![1, 2, 3].includes(args.pillar as number)) {
+  if (args.pillar !== 'none' && ![1, 2, 3].includes(Number(args.pillar))) {
     return err('pillar must be 1, 2, 3, or "none"');
   }
-  if (![1, 2, 3].includes(args.priority as number)) {
+  if (![1, 2, 3].includes(Number(args.priority))) {
     return err('priority must be 1, 2, or 3');
   }
   if (!args.purpose || args.purpose.length < 10) return err('purpose must be ≥10 chars');
@@ -241,7 +241,7 @@ async function acceptProposal(args: AcceptProposalArgs): Promise<ToolResponse> {
   let headline = '';
 
   if (target === 'task') {
-    if (!args.priority || ![1, 2, 3].includes(args.priority as number)) {
+    if (!args.priority || ![1, 2, 3].includes(Number(args.priority))) {
       return err('target=task accept requires priority (1, 2, or 3) — re-grade fresh, do not auto-carry the proposal hint');
     }
     const pillar = args.pillar ?? pfm.target_pillar;
@@ -274,7 +274,7 @@ async function acceptProposal(args: AcceptProposalArgs): Promise<ToolResponse> {
     await writeAtomic(spawnedPath, serializeFrontmatter(taskFm) + pbody.trimEnd() + ctxNote);
     headline = (pfm.purpose ?? '').split('\n')[0].slice(0, 60);
   } else if (target === 'learn') {
-    if (!args.priority || ![1, 2, 3].includes(args.priority as number)) {
+    if (!args.priority || ![1, 2, 3].includes(Number(args.priority))) {
       return err('target=learn accept requires priority (1, 2, or 3)');
     }
     const pillar = args.pillar ?? pfm.target_pillar;
@@ -377,7 +377,7 @@ async function proposeTask(args: ProposeTaskArgs): Promise<ToolResponse> {
   if (args.target_pillar !== 'none' && ![1, 2, 3].includes(Number(args.target_pillar))) {
     return err('target_pillar must be 1, 2, 3, or "none"');
   }
-  if (![1, 2, 3].includes(args.target_priority as number)) {
+  if (![1, 2, 3].includes(Number(args.target_priority))) {
     return err('target_priority must be 1, 2, or 3');
   }
   if (!args.purpose || args.purpose.length < 10) return err('purpose must be ≥10 chars');
@@ -436,7 +436,7 @@ async function assignLearn(args: AssignLearnArgs): Promise<ToolResponse> {
   if (args.pillar !== 'none' && ![1, 2, 3].includes(Number(args.pillar))) {
     return err('pillar must be 1, 2, 3, or "none"');
   }
-  if (![1, 2, 3].includes(args.priority as number)) {
+  if (![1, 2, 3].includes(Number(args.priority))) {
     return err('priority must be 1, 2, or 3');
   }
   if (!args.curriculum) return err('curriculum required (id, e.g. "bytebytego-systems")');
