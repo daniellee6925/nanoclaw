@@ -913,6 +913,100 @@ async function readTodayTranscript(args: ReadTranscriptArgs): Promise<ToolRespon
   }
 }
 
+interface CreateGithubIssueArgs {
+  repo: string; // "owner/repo"
+  title: string;
+  body: string;
+  labels?: string[];
+}
+
+// Create a GitHub issue via the REST API. PURE: it hits GitHub and returns the
+// issue URL — it does NOT write to Constantia or append a tick-log section (the
+// issue itself is the durable record; unlike the task tools, there's no local
+// file to commit). Auth via GITHUB_TOKEN (needs Issues: write on the repo),
+// injected into this MCP server's env by the Mini-local container.json. No new
+// deps — Node/Bun expose fetch globally. Create-only by design: no PR creation,
+// no commenting, no closing (T-007 scope).
+async function createGithubIssue(args: CreateGithubIssueArgs): Promise<ToolResponse> {
+  if (
+    !args.repo ||
+    !/^[\w.-]+\/[\w.-]+$/.test(args.repo) ||
+    args.repo.split('/').some((seg) => /^\.+$/.test(seg)) // reject "." / ".." path segments
+  ) {
+    return err('repo must be "owner/repo" (e.g. "daniellee6925/constantia")');
+  }
+  if (!args.title || args.title.trim().length < 3) return err('title must be ≥3 chars');
+  if (!args.body || args.body.trim().length < 10) return err('body must be ≥10 chars');
+  if (
+    args.labels !== undefined &&
+    (!Array.isArray(args.labels) || args.labels.some((l) => typeof l !== 'string'))
+  ) {
+    return err('labels must be an array of strings when provided');
+  }
+
+  const token = process.env.GITHUB_TOKEN;
+  if (!token) {
+    return err(
+      'GITHUB_TOKEN not set in this MCP server\'s env — cannot authenticate to GitHub. ' +
+        'Add it to the telos-tools "env" block in the Mini-local container.json.',
+    );
+  }
+
+  const payload: Record<string, unknown> = { title: args.title, body: args.body };
+  if (args.labels && args.labels.length) payload.labels = args.labels;
+
+  let res: Response;
+  try {
+    res = await fetch(`https://api.github.com/repos/${args.repo}/issues`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+        'Content-Type': 'application/json',
+        'User-Agent': 'telos-constantia-mcp', // GitHub rejects API calls with no UA
+      },
+      body: JSON.stringify(payload),
+      // Without this a hung request would wedge the serialized JSON-RPC tool
+      // loop indefinitely — every later tool call blocks behind it.
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch (e) {
+    const timedOut = e instanceof Error && (e.name === 'TimeoutError' || e.name === 'AbortError');
+    return err(
+      timedOut
+        ? 'GitHub request timed out after 15s — network issue or GitHub unreachable. Not retried.'
+        : `GitHub request failed (network): ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+
+  if (res.status === 201) {
+    const issue = (await res.json()) as { number: number; html_url: string };
+    return ok(`Created issue #${issue.number} in ${args.repo}: ${issue.html_url}`);
+  }
+
+  // Non-201: surface GitHub's own message plus a targeted hint for the common
+  // auth/scope failures so the diagnosis doesn't require reading raw HTTP.
+  let detail = '';
+  try {
+    const j = (await res.json()) as { message?: string };
+    if (j.message) detail = ` — ${j.message}`;
+  } catch {
+    /* non-JSON error body */
+  }
+  const hint =
+    res.status === 401
+      ? ' (token invalid or expired)'
+      : res.status === 403
+        ? ' (token lacks Issues:write on this repo, or rate-limited)'
+        : res.status === 404
+          ? ' (repo not found, or token has no access to it)'
+          : res.status === 422
+            ? ' (invalid field — e.g. a label that does not exist on the repo)'
+            : '';
+  return err(`GitHub issue create failed: HTTP ${res.status}${hint}${detail}`);
+}
+
 // ---- Tool registry ----------------------------------------------------------
 
 const TOOLS = [
@@ -1171,6 +1265,32 @@ const TOOLS = [
       },
     },
   },
+  {
+    name: 'create_github_issue',
+    description:
+      'Create a GitHub issue in a specified repo via the GitHub REST API. Returns the new issue number + URL. Create-only — no PR creation, no commenting, no closing. PURE: does not write to Constantia or the tick log (the issue is the durable record). Requires GITHUB_TOKEN (Issues: write on the repo) in this server\'s env. Use when a work item belongs in a code repo\'s issue tracker rather than as a Constantia task.',
+    inputSchema: {
+      type: 'object',
+      required: ['repo', 'title', 'body'],
+      properties: {
+        repo: {
+          type: 'string',
+          description: 'Target repository as "owner/repo", e.g. "daniellee6925/constantia".',
+        },
+        title: { type: 'string', description: 'Issue title (concise, ≥3 chars).' },
+        body: {
+          type: 'string',
+          description: 'Issue body in GitHub-flavored Markdown (≥10 chars).',
+        },
+        labels: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Optional label names. Each must already exist on the repo, or GitHub rejects the call with 422.',
+        },
+      },
+    },
+  },
 ] as const;
 
 const HANDLERS: Record<string, (args: any) => Promise<ToolResponse>> = {
@@ -1186,6 +1306,7 @@ const HANDLERS: Record<string, (args: any) => Promise<ToolResponse>> = {
   write_reflection: writeReflection,
   read_today_transcript: readTodayTranscript,
   do_nothing: doNothing,
+  create_github_issue: createGithubIssue,
 };
 
 // ---- JSON-RPC stdio loop ----------------------------------------------------
