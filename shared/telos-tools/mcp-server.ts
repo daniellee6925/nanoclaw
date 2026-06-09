@@ -357,6 +357,56 @@ async function acceptProposal(args: AcceptProposalArgs): Promise<ToolResponse> {
   return ok(formatResult(`Accepted ${args.proposal_id} as ${target} → ${spawnedId}`, result));
 }
 
+interface RejectProposalArgs {
+  proposal_id: string;
+  rejection_reason: string;
+}
+
+// Reject a P-### proposal. Unlike accept_proposal, NO artifact is spawned —
+// a rejected proposal was never accepted, so there is no T/L task to grade.
+// (That impossible "grade_task the spawned task" instruction in the morning
+// tick is exactly what T-024 retired.) The P-### is flipped to status=rejected
+// with rejected_at + rejection_reason for the audit trail, mirroring how
+// acceptProposal stamps accepted_at + accepted_into. Pre-commit already accepts
+// `rejected` in the proposal status enum (proposed|accepted|rejected).
+async function rejectProposal(args: RejectProposalArgs): Promise<ToolResponse> {
+  if (!/^P-\d{3}$/.test(args.proposal_id)) return err('proposal_id must match P-NNN');
+  if (!args.rejection_reason || args.rejection_reason.length < 10) {
+    return err('rejection_reason must be ≥10 chars — say specifically why this proposal is declined');
+  }
+
+  const proposalPath = path.join(PROPOSALS_DIR, `${args.proposal_id}.md`);
+  let content: string;
+  try {
+    content = await fs.readFile(proposalPath, 'utf-8');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+    return err(`Proposal ${args.proposal_id} not found at ${proposalPath}`);
+  }
+
+  const { fm, body } = parseFrontmatter(content);
+  if (fm.status !== 'proposed') {
+    return err(
+      `Proposal ${args.proposal_id} is in status "${fm.status}", not "proposed". Already accepted or rejected.`,
+    );
+  }
+
+  const { date } = nowPT();
+  fm.status = 'rejected';
+  fm.rejected_at = date;
+  fm.rejection_reason = args.rejection_reason;
+  await writeAtomic(proposalPath, serializeFrontmatter(fm) + body);
+
+  const headline = args.rejection_reason.split('\n')[0].slice(0, 60);
+  const tickLogPath = await appendTickLogSection(
+    'reject_proposal',
+    `**Proposal:** ${args.proposal_id}\n**Reason:** ${args.rejection_reason.split('\n')[0].slice(0, 200)}`,
+    args.proposal_id,
+  );
+  const result = await commitOnly(`reject: ${args.proposal_id} — ${headline}`, [proposalPath, tickLogPath]);
+  return ok(formatResult(`Rejected ${args.proposal_id}`, result));
+}
+
 // ---- Phase 2b new tools ----------------------------------------------------
 
 interface ProposeTaskArgs {
@@ -1078,6 +1128,19 @@ const TOOLS = [
     },
   },
   {
+    name: 'reject_proposal',
+    description:
+      'Reject a P-proposal in tasks/proposals/P-NNN.md — flips status proposed→rejected and stamps rejected_at + rejection_reason for the audit trail, appends a tick-log section, commits. NO artifact is spawned (a rejected proposal was never accepted, so there is no task to grade — do not reach for grade_task). Use at morning triage to clear ideas you are declining so the open-proposal queue does not accumulate past 3. To accept instead, use accept_proposal.',
+    inputSchema: {
+      type: 'object',
+      required: ['proposal_id', 'rejection_reason'],
+      properties: {
+        proposal_id: { type: 'string', pattern: '^P-\\d{3}$', description: 'e.g. P-006 — must currently be status=proposed.' },
+        rejection_reason: { type: 'string', minLength: 10, description: 'Why this proposal is being declined — specific, ≥10 chars. Recorded on the proposal and in the tick log.' },
+      },
+    },
+  },
+  {
     name: 'propose_task',
     description:
       'Propose work for Daniel\'s consideration — writes P-NNN.md to tasks/proposals/. The proposal is just an idea; accept_proposal turns it into the right artifact (T-task, L-task, or curriculum). target_priority is a HINT — accept_proposal forces a fresh re-grade. Use when surfacing an opportunity that isn\'t ready to be assigned outright (needs Daniel\'s input on shape/timing).',
@@ -1298,6 +1361,7 @@ const HANDLERS: Record<string, (args: any) => Promise<ToolResponse>> = {
   assign_task: assignTask,
   grade_task: gradeTask,
   accept_proposal: acceptProposal,
+  reject_proposal: rejectProposal,
   propose_task: proposeTask,
   assign_learn: assignLearn,
   add_reminder: addReminder,
