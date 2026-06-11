@@ -13,6 +13,7 @@ import { runMigrations } from './db/migrations/index.js';
 import { ensureContainerRuntimeRunning, cleanupOrphans } from './container-runtime.js';
 import { startActiveDeliveryPoll, startSweepDeliveryPoll, setDeliveryAdapter, stopDeliveryPolls } from './delivery.js';
 import { startHostSweep, stopHostSweep } from './host-sweep.js';
+import { reconcileChannelSessions } from './session-supersede.js';
 import { routeInbound } from './router.js';
 import { log } from './log.js';
 
@@ -66,6 +67,11 @@ async function main(): Promise<void> {
 
   // 1b. One-time filesystem cutover — idempotent, no-op after first run.
   migrateGroupsToClaudeLocal();
+
+  // 1c. Collapse any channel with >1 active session down to a single owner,
+  // carrying stranded recurring schedules onto the survivor. Heals duplicates
+  // left by a redeploy/restart before the sweep starts firing ticks.
+  reconcileChannelSessions();
 
   // 2. Container runtime
   ensureContainerRuntimeRunning();

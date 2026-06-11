@@ -28,6 +28,7 @@ export {
   getSession,
   findSession,
   findSessionByAgentGroup,
+  findActiveSessionsForChannel,
   getSessionsByAgentGroup,
   getActiveSessions,
   getRunningSessions,

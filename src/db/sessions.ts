@@ -52,6 +52,31 @@ export function findSessionForAgent(
     .get(agentGroupId, messagingGroupId) as Session | undefined;
 }
 
+/**
+ * ALL active sessions for a channel key (not just the first). `findSessionForAgent`
+ * returns one via `.get()`; this returns the full set so a duplicate that slipped
+ * past the lookup can be detected and superseded. Used by the single-active-session
+ * enforcement in resolveSession and the boot-time reconcile.
+ */
+export function findActiveSessionsForChannel(
+  agentGroupId: string,
+  messagingGroupId: string,
+  threadId: string | null,
+): Session[] {
+  if (threadId) {
+    return getDb()
+      .prepare(
+        "SELECT * FROM sessions WHERE agent_group_id = ? AND messaging_group_id = ? AND thread_id = ? AND status = 'active'",
+      )
+      .all(agentGroupId, messagingGroupId, threadId) as Session[];
+  }
+  return getDb()
+    .prepare(
+      "SELECT * FROM sessions WHERE agent_group_id = ? AND messaging_group_id = ? AND thread_id IS NULL AND status = 'active'",
+    )
+    .all(agentGroupId, messagingGroupId) as Session[];
+}
+
 /** Find an active session scoped to an agent group (ignoring messaging group). */
 export function findSessionByAgentGroup(agentGroupId: string): Session | undefined {
   return getDb()

@@ -19,9 +19,10 @@ import { DATA_DIR } from './config.js';
 import { getMessagingGroup } from './db/messaging-groups.js';
 import {
   createSession,
-  findSession,
   findSessionByAgentGroup,
   findSessionForAgent,
+  findActiveSessionsForChannel,
+  getSessionsByAgentGroup,
   getSession,
   updateSession,
 } from './db/sessions.js';
@@ -34,6 +35,7 @@ import {
   migrateMessagesInTable,
 } from './db/session-db.js';
 import { log } from './log.js';
+import { supersedeSession } from './session-supersede.js';
 import type { Session } from './types.js';
 
 /** Root directory for all session data. */
@@ -121,6 +123,39 @@ export function resolveSession(
   createSession(session);
   initSessionFolder(agentGroupId, id);
   log.info('Session created', { id, agentGroupId, messagingGroupId, threadId: lookupThreadId, sessionMode });
+
+  // Enforce one active session per channel. We only reach here when the lookup
+  // above found no session to reuse — but a duplicate can still exist if that
+  // lookup missed an active session (the bug that stranded the work-channel
+  // tick schedule). Supersede any straggler now, carrying its recurring
+  // schedule onto the new session so ticks aren't orphaned in a dead session.
+  const stragglers =
+    sessionMode === 'agent-shared'
+      ? getSessionsByAgentGroup(agentGroupId).filter((s) => s.status === 'active' && s.id !== id)
+      : messagingGroupId
+        ? findActiveSessionsForChannel(agentGroupId, messagingGroupId, lookupThreadId).filter((s) => s.id !== id)
+        : [];
+  for (const old of stragglers) {
+    // Best-effort: a supersede failure (e.g. a corrupt inbound.db) must not
+    // break session creation and drop the inbound message that triggered it.
+    // Log and move on — the next boot reconcile retries the collapse.
+    try {
+      const migrated = supersedeSession(old, id, agentGroupId);
+      log.warn('Superseded straggler active session on create', {
+        newSession: id,
+        endedSession: old.id,
+        agentGroupId,
+        migratedSchedules: migrated,
+      });
+    } catch (err) {
+      log.error('Failed to supersede straggler session on create', {
+        newSession: id,
+        endedSession: old.id,
+        agentGroupId,
+        err,
+      });
+    }
+  }
 
   return { session, created: true };
 }

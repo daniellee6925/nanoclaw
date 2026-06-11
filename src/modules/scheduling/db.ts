@@ -151,3 +151,77 @@ export function insertRecurrence(
 export function clearRecurrence(db: Database.Database, messageId: string): void {
   db.prepare('UPDATE messages_in SET recurrence = NULL WHERE id = ?').run(messageId);
 }
+
+// ---------------------------------------------------------------------------
+// Schedule migration (session supersede)
+//
+// When a channel's session is superseded by a fresh one (e.g. a prompt
+// redeploy spawns a new session), the recurring schedule lives only in the
+// old session's inbound.db. These helpers move the *live* schedule — the
+// pending/paused rows that still carry a recurrence — into the replacement
+// session so ticks don't get stranded in a session the sweep ignores.
+// See src/session-supersede.ts for the orchestration.
+// ---------------------------------------------------------------------------
+
+/** A live recurring template: the row a sweep would fire next for a series. */
+export interface LiveRecurringMessage extends RecurringMessage {
+  status: 'pending' | 'paused';
+}
+
+/**
+ * Live recurring templates — the pending/paused rows that still drive a
+ * series. Completed rows are excluded (handleRecurrence already replaced them
+ * with the next occurrence). This is the schedule worth migrating.
+ */
+export function getLiveRecurring(db: Database.Database): LiveRecurringMessage[] {
+  return db
+    .prepare(
+      "SELECT * FROM messages_in WHERE kind = 'task' AND recurrence IS NOT NULL AND status IN ('pending', 'paused')",
+    )
+    .all() as LiveRecurringMessage[];
+}
+
+/** True if the target already drives this series — guards against double-migration. */
+export function hasLiveSeries(db: Database.Database, seriesId: string): boolean {
+  return (
+    db
+      .prepare(
+        "SELECT 1 FROM messages_in WHERE series_id = ? AND kind = 'task' AND recurrence IS NOT NULL AND status IN ('pending', 'paused') LIMIT 1",
+      )
+      .get(seriesId) !== undefined
+  );
+}
+
+/**
+ * Insert a migrated recurring template into a target inbound.db, preserving
+ * series_id, status, recurrence and the original next-fire time. Differs from
+ * insertRecurrence (which stamps status='pending' and a fresh next-run) — a
+ * migration must not reschedule or un-pause the series, only relocate it.
+ */
+export function insertMigratedRecurring(db: Database.Database, msg: LiveRecurringMessage, newId: string): void {
+  db.prepare(
+    `INSERT INTO messages_in (id, seq, kind, timestamp, status, process_after, recurrence, platform_id, channel_type, thread_id, content, series_id, trigger)
+     VALUES (?, ?, ?, datetime('now'), ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+  ).run(
+    newId,
+    nextEvenSeq(db),
+    msg.kind,
+    msg.status,
+    msg.process_after,
+    msg.recurrence,
+    msg.platform_id,
+    msg.channel_type,
+    msg.thread_id,
+    msg.content,
+    msg.series_id,
+  );
+}
+
+/**
+ * Retire a recurring row in the *source* session after migration so it can
+ * never fire again even if that session is somehow reactivated. Sets the row
+ * completed and strips its recurrence.
+ */
+export function retireRecurring(db: Database.Database, messageId: string): void {
+  db.prepare("UPDATE messages_in SET status = 'completed', recurrence = NULL WHERE id = ?").run(messageId);
+}
