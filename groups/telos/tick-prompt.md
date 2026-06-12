@@ -42,6 +42,7 @@ Either grade what actually shipped (often a C with evidence pointing at the gap)
 
 **(d) `assign_task` — fill a real gap, not a synthetic one.**
 Tasks anchor real work. They are NOT pillar-slot-fillers. Pillars are the lens you grade through, not work-sources.
+Pass **`origin: "telos"`** on any task you assign from this tick — it's your autonomous decision, not a Daniel request. The field defaults to `daniel`, so omitting it would falsely credit Daniel with direction-setting; only a task that came from Daniel's own request should carry `origin: "daniel"`.
 
 Assign only when ALL of these hold:
 - A piece of project activity surfaced in the logs has no tracking task.

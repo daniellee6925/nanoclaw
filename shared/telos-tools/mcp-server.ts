@@ -80,6 +80,7 @@ interface AssignTaskArgs {
   purpose: string;
   acceptance: string;
   context: string;
+  origin?: 'daniel' | 'telos' | 'guya';
 }
 
 // Direct task assignment (no prior proposal). Writes tasks/tasks/T-NNN.md.
@@ -94,6 +95,15 @@ async function assignTask(args: AssignTaskArgs): Promise<ToolResponse> {
   if (!args.purpose || args.purpose.length < 10) return err('purpose must be ≥10 chars');
   if (!args.acceptance || args.acceptance.length < 10) return err('acceptance must be ≥10 chars');
 
+  // origin = who DIRECTED the task (vs assigned_by = who wrote the file, always telos).
+  // Default 'daniel' because ~90% of direct assignments come from a Daniel request in
+  // conversation; autonomous tick/planning prompts MUST pass origin:'telos' explicitly so
+  // the default never silently inflates direction-setting evidence.
+  const origin = args.origin ?? 'daniel';
+  if (origin !== 'daniel' && origin !== 'telos' && origin !== 'guya') {
+    return err('origin must be "daniel", "telos", or "guya"');
+  }
+
   const id = await nextTaskId(); // → T-NNN
   const { date } = nowPT();
 
@@ -104,6 +114,7 @@ async function assignTask(args: AssignTaskArgs): Promise<ToolResponse> {
     priority: String(args.priority),
     assigned: date,
     assigned_by: 'telos',
+    origin,
     purpose: args.purpose,
     acceptance: args.acceptance,
     grade: null,
@@ -262,6 +273,7 @@ async function acceptProposal(args: AcceptProposalArgs): Promise<ToolResponse> {
       priority: String(args.priority),
       assigned: date,
       assigned_by: 'telos',
+      origin: pfm.proposed_by ?? 'guya',
       proposed_by: pfm.proposed_by ?? 'guya',
       proposed_from: args.proposal_id,
       purpose: pfm.purpose,
@@ -1064,11 +1076,16 @@ const TOOLS = [
   {
     name: 'assign_task',
     description:
-      'Create a new T-task in tasks/tasks/T-NNN.md with structured frontmatter. Auto-increments NNN, validates pillar (1/2/3/none) and priority (1/2/3 numeric — no T/P prefix post 2026-05-08 reorg), commits, pushes. Use when the tick decision is to add new work for Daniel directly (no prior proposal). At equal priority, pillar work wins over pillar=none. To create a proposal instead, use propose_task. To accept a Guya-proposed P-proposal, use accept_proposal.',
+      'Create a new T-task in tasks/tasks/T-NNN.md with structured frontmatter. Auto-increments NNN, validates pillar (1/2/3/none) and priority (1/2/3 numeric — no T/P prefix post 2026-05-08 reorg), commits, pushes. Use when the tick decision is to add new work for Daniel directly (no prior proposal). At equal priority, pillar work wins over pillar=none. To create a proposal instead, use propose_task. To accept a Guya-proposed P-proposal, use accept_proposal. IMPORTANT — set `origin`: when YOU (an autonomous tick/planning decision) are surfacing this work, pass origin:"telos"; only omit it when the task came from a Daniel request (origin defaults to "daniel"). origin is the direction-setting signal — getting it wrong corrupts Daniel\'s growth evidence.',
     inputSchema: {
       type: 'object',
       required: ['pillar', 'priority', 'purpose', 'acceptance', 'context'],
       properties: {
+        origin: {
+          type: 'string',
+          enum: ['daniel', 'telos', 'guya'],
+          description: 'Who DIRECTED this work (not who wrote the file — that is always telos). "daniel" = Daniel asked for it (the default). "telos" = you surfaced it autonomously at a tick — pass this explicitly. "guya" = reserved for accept_proposal lineage.',
+        },
         pillar: {
           oneOf: [
             { type: 'integer', enum: [1, 2, 3] },
