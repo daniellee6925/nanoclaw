@@ -198,6 +198,108 @@ export async function nextEvidenceId(): Promise<string> {
   return nextId(EVIDENCE_DIR, 'EVD');
 }
 
+// ---- Dedup -----------------------------------------------------------------
+//
+// Guards assign_task / propose_task against double-fire: if a tick fires twice
+// for the same day (cron double-fire, manual re-run, retry-after-transient) and
+// both turns decide to create for the same gap, nextId() happily hands out two
+// consecutive ids and you get near-identical T-020 *and* T-021 (T-030). The
+// matcher below catches "I already created this today" before the second write.
+//
+// Scope: this is a best-effort check-then-write, NOT a concurrency lock. It
+// fully closes SEQUENTIAL re-fires (a session retrying, a manual re-run) — the
+// documented failure mode. Two TRULY CONCURRENT tick processes could both pass
+// the scan before either writes and still mint a duplicate; closing that needs
+// a lock / atomic create-if-absent (T-030 Options 2-3), deliberately deferred
+// as more infrastructure than the failure rate justifies today.
+
+// Threshold for token-set Jaccard similarity above which two purposes are
+// treated as the same intent. Deliberately high: a missed duplicate is cheap
+// (rare, cosmetic), but wrongly blocking a genuinely distinct task is the
+// costly failure. Tune here, one line.
+export const DUP_SIMILARITY_THRESHOLD = 0.8;
+
+// Normalize a purpose for comparison: lowercase, every non-alphanumeric run
+// (punctuation, markdown, `/`, `_`, newlines) → a single space, collapsed and
+// trimmed. Unicode-aware so a non-ASCII purpose isn't nuked to empty. Pure.
+export function normalizePurpose(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim();
+}
+
+// Token-set Jaccard similarity of two purposes, in [0,1]. 1 = identical token
+// sets (order/duplication/punctuation-insensitive); 0 = disjoint. Two empty
+// strings count as identical; one empty vs non-empty as disjoint. Pure.
+export function purposeSimilarity(a: string, b: string): number {
+  const ta = new Set(normalizePurpose(a).split(' ').filter(Boolean));
+  const tb = new Set(normalizePurpose(b).split(' ').filter(Boolean));
+  if (ta.size === 0 && tb.size === 0) return 1;
+  if (ta.size === 0 || tb.size === 0) return 0;
+  let inter = 0;
+  for (const t of ta) if (tb.has(t)) inter++;
+  return inter / (ta.size + tb.size - inter);
+}
+
+export interface DuplicateHit {
+  id: string;
+  similarity: number;
+}
+
+// Scan `dir` for a `${prefix}-NNN.md` whose `dateField` frontmatter equals
+// `date` AND whose `purpose` is fuzzy-equal to `purpose` (Jaccard ≥ threshold).
+// Returns the best (highest-similarity) hit, or null. Same dir-scan shape as
+// nextId; a missing dir, an unreadable/raced file, or a malformed frontmatter
+// is skipped — a dedup guard must never throw and block a legitimate write.
+export async function findDuplicateByPurpose(
+  dir: string,
+  prefix: string,
+  dateField: string,
+  date: string,
+  purpose: string,
+): Promise<DuplicateHit | null> {
+  let files: string[];
+  try {
+    files = await fs.readdir(dir);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+    return null;
+  }
+  // Sort so tie-breaks are deterministic across filesystems (APFS vs container
+  // overlayfs give different readdir order). Ascending + strict `>` below means
+  // a tie keeps the lowest id — the canonical *original*, not its later twin.
+  files.sort();
+  const re = new RegExp(`^${prefix}-\\d{3}\\.md$`);
+  let best: DuplicateHit | null = null;
+  for (const f of files) {
+    if (!re.test(f)) continue;
+    let content: string;
+    try {
+      content = await fs.readFile(path.join(dir, f), 'utf-8');
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') continue; // raced deletion
+      throw e;
+    }
+    let fm: Frontmatter;
+    try {
+      ({ fm } = parseFrontmatter(content));
+    } catch {
+      // Skip — a dedup guard must never throw and block a legitimate write. But
+      // skipping is not free: an unmatchable file is a hole the guard can't see
+      // through, so signal it on stderr rather than swallowing silently.
+      console.error(`[telos-constantia] findDuplicateByPurpose: skipping ${f} (malformed frontmatter)`);
+      continue;
+    }
+    if (fm[dateField] !== date || !fm.purpose) continue;
+    const sim = purposeSimilarity(fm.purpose, purpose);
+    if (sim >= DUP_SIMILARITY_THRESHOLD && (!best || sim > best.similarity)) {
+      best = { id: fm.id ?? f.replace(/\.md$/, ''), similarity: sim };
+    }
+  }
+  return best;
+}
+
 // ---- Git -------------------------------------------------------------------
 
 let gitConfigDone = false;

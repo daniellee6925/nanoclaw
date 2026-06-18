@@ -23,6 +23,9 @@ import {
   err,
   formatResult,
   isUnit123,
+  normalizePurpose,
+  purposeSimilarity,
+  DUP_SIMILARITY_THRESHOLD,
 } from './helpers';
 
 describe('serializeFrontmatter', () => {
@@ -267,5 +270,59 @@ describe('isUnit123', () => {
     expect(isUnit123('')).toBe(false); // Number('') === 0 → out of range
     expect(isUnit123(undefined)).toBe(false);
     expect(isUnit123(null)).toBe(false);
+  });
+});
+
+describe('normalizePurpose', () => {
+  test('lowercases and collapses punctuation/whitespace to single spaces', () => {
+    expect(normalizePurpose('Add  idempotency/dedup, please!')).toBe('add idempotency dedup please');
+  });
+
+  test('treats markdown, underscores, and newlines as separators', () => {
+    expect(normalizePurpose('**assign_task**\nand `propose_task`')).toBe('assign task and propose task');
+  });
+
+  test('trims leading/trailing separators', () => {
+    expect(normalizePurpose('  ...hello...  ')).toBe('hello');
+  });
+
+  test('keeps unicode letters/numbers rather than nuking to empty', () => {
+    expect(normalizePurpose('상품 정보 fix v2')).toBe('상품 정보 fix v2');
+  });
+});
+
+describe('purposeSimilarity', () => {
+  test('identical strings score 1', () => {
+    const s = 'Add idempotency/dedup to the task-creation handlers';
+    expect(purposeSimilarity(s, s)).toBe(1);
+  });
+
+  test('order, duplication, and punctuation do not matter', () => {
+    expect(purposeSimilarity('fix the bug now', 'NOW, fix the the bug!')).toBe(1);
+  });
+
+  test('two empty strings are identical; empty vs non-empty is disjoint', () => {
+    expect(purposeSimilarity('', '')).toBe(1);
+    expect(purposeSimilarity('', 'something')).toBe(0);
+  });
+
+  test('purposes with no shared tokens score 0', () => {
+    expect(purposeSimilarity('migrate platform onto larger EC2', 'Korean rendering bugfix dashboard')).toBe(0);
+  });
+
+  // The actual failure mode: a tick double-fires and rewords the same intent
+  // slightly (slash→"and", a dropped article). Must clear the dedup threshold.
+  test('a reworded same-intent purpose clears the dedup threshold', () => {
+    const a = 'Add idempotency/dedup to the task-creation handlers (assign_task, propose_task)';
+    const b = 'Add idempotency and dedup to task-creation handlers (assign_task, propose_task)';
+    expect(purposeSimilarity(a, b)).toBeGreaterThanOrEqual(DUP_SIMILARITY_THRESHOLD);
+  });
+
+  // Conservative threshold: merely sharing a few generic words must NOT trip it,
+  // so genuinely distinct same-day tasks are never blocked.
+  test('purposes sharing only generic words stay below the threshold', () => {
+    const a = 'Add a text normalizer for voice chat output';
+    const b = 'Add idempotency to the task-creation handlers';
+    expect(purposeSimilarity(a, b)).toBeLessThan(DUP_SIMILARITY_THRESHOLD);
   });
 });

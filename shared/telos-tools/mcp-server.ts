@@ -52,6 +52,7 @@ import {
   commitOnly,
   err,
   extractText,
+  findDuplicateByPurpose,
   formatResult,
   isUnit123,
   nextEvidenceId,
@@ -104,8 +105,25 @@ async function assignTask(args: AssignTaskArgs): Promise<ToolResponse> {
     return err('origin must be "daniel", "telos", or "guya"');
   }
 
-  const id = await nextTaskId(); // → T-NNN
   const { date } = nowPT();
+
+  // Idempotency guard (T-030): if a tick double-fires for the same day and both
+  // turns decide to assign for the same gap, suppress the second write rather
+  // than mint a near-duplicate T-task. Return the existing id as a success so a
+  // retried tick converges instead of erroring into another retry.
+  const dup = await findDuplicateByPurpose(TASKS_FILES_DIR, 'T', 'assigned', date, args.purpose);
+  if (dup) {
+    console.error(
+      `[telos-constantia] assign_task: duplicate suppressed — ${dup.id} (${Math.round(dup.similarity * 100)}% match, ${date})`,
+    );
+    return ok(
+      `Duplicate suppressed: ${dup.id} was already assigned today (${date}) with a ` +
+        `near-identical purpose (${Math.round(dup.similarity * 100)}% match). No new task written. ` +
+        `If this is genuinely distinct work, reword the purpose; if ${dup.id} was a mistake, grade/abandon it.`,
+    );
+  }
+
+  const id = await nextTaskId(); // → T-NNN
 
   const fm: Frontmatter = {
     id,
@@ -445,8 +463,22 @@ async function proposeTask(args: ProposeTaskArgs): Promise<ToolResponse> {
   }
   if (!args.purpose || args.purpose.length < 10) return err('purpose must be ≥10 chars');
 
-  const id = await nextProposalId(); // P-NNN
   const { date } = nowPT();
+
+  // Idempotency guard (T-030): suppress a same-day, fuzzy-equal re-proposal
+  // (double-fire / retry) instead of minting a near-duplicate P-proposal.
+  const dup = await findDuplicateByPurpose(PROPOSALS_DIR, 'P', 'proposed_at', date, args.purpose);
+  if (dup) {
+    console.error(
+      `[telos-constantia] propose_task: duplicate suppressed — ${dup.id} (${Math.round(dup.similarity * 100)}% match, ${date})`,
+    );
+    return ok(
+      `Duplicate suppressed: ${dup.id} was already proposed today (${date}) with a ` +
+        `near-identical purpose (${Math.round(dup.similarity * 100)}% match). No new proposal written.`,
+    );
+  }
+
+  const id = await nextProposalId(); // P-NNN
   const author = args.proposed_by ?? 'telos';
 
   const fm: Frontmatter = {
