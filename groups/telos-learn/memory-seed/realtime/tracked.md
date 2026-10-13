@@ -2,7 +2,7 @@
 
 bootstrapped: no
 
-> On the first 10am tick, Telos builds the catch-up backlog with verified research, then sets `bootstrapped: yes`. Engine context lives in `learner.md`. ≤200 lines.
+> On the first 10am tick, Telos builds the catch-up backlog with verified research, then sets `bootstrapped: yes`. Engine context lives in `user.md`. ≤200 lines.
 
 ## Watch list
 

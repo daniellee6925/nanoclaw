@@ -1,4 +1,4 @@
-# Inference & serving — syllabus
+# Inference, serving & infra — syllabus
 
 Markers: `[ ]` todo · `[>]` next · `[x]` taught · `[~]` skipped, mastered (cite the evidence date) · `[+]` inserted remedial
 
@@ -61,3 +61,10 @@ Telos may reorder lessons within a phase, split a lesson that won't fit in ~550 
 - [ ] 38. Benchmarking honestly — request rate vs concurrency, open vs closed loop, percentile latency, goodput under an SLO.
 - [ ] 39. The tuning knobs — max_num_seqs, max_num_batched_tokens, gpu_memory_utilization, chunked prefill, prefix caching: what each one trades.
 - [ ] 40. Serving for realtime voice — TTFT-first SLOs, streaming, priority scheduling, prefix-caching conversation history; the bridge back to your engine.
+
+## Phase 10 — Serving infrastructure
+- [ ] 41. Model loading and cold starts — weights from disk/network into GPU memory; why scale-from-zero breaks a realtime latency budget.
+- [ ] 42. Autoscaling GPU inference — which signal to scale on (queue depth, KV-cache utilization, TTFT) and why CPU or requests/s mislead.
+- [ ] 43. Long-lived streaming connections — load-balancing WebSocket/WebRTC sessions, sticky routing, draining connections on deploy.
+- [ ] 44. Observability for latency SLOs — percentiles, per-stage timing (queue → prefill → decode → network), tracing one turn end to end.
+- [ ] 45. Where latency hides end to end — network RTT, region placement, edge vs central GPUs; building the latency budget for one voice turn.

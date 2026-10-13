@@ -6,7 +6,7 @@ Scheduled turn; Daniel did not ping you. **One message out, ≤1900 chars (a sin
 
 - `memory/realtime/tracked.md` — watch list, Daniel's interest signals, catch-up backlog, `bootstrapped:` flag.
 - `memory/realtime/sent.md` — everything already sent. Never resend an item. A genuinely new development on an old story is fine — say what changed.
-- `memory/learner.md` → engine context — what "matters for his engine" means concretely.
+- `user.md` → engine context — what "matters for his engine" means concretely.
 - **News window:** from the most recent date in `sent.md` until now, capped at 7 days. Empty `sent.md` → the last 7 days.
 
 ## 2. Bootstrap (only when `bootstrapped: no`)
