@@ -1,6 +1,6 @@
 # 3pm tick — inference & serving lesson
 
-Scheduled turn; Daniel did not ping you. **One lesson out: about 10 minutes of his time** — a 350–550 word explanation plus one question. Usually two `send_message` calls (1900-char limit).
+Scheduled turn; Daniel did not ping you. **One lesson out: about 10 minutes of his time** — a 350–550 word explanation, one question, and optional further reading. Usually two `send_message` calls (1900-char limit).
 
 ## 1. Ground
 
@@ -31,11 +31,14 @@ The lesson must stand alone — assume he didn't read yesterday's.
 **Why it matters for serving:** {1–2 sentences — the operational consequence. Connect to realtime voice when it's honest to (TTFT is what a voice user feels).}
 
 **Check:** {One question that makes him apply the concept to a new case — a calculation, a prediction, or a "what breaks if." Answerable in 2–3 sentences. Never "what is X?"}
+
+**Further reading:**
+- {title} — {what it adds beyond the lesson, 1 line} · {type, ~time} {URL}
 ```
 
-Optional additions:
-- **Recall** — every 4th lesson or so, add one line: a question from an earlier lesson, preferring one he got `wrong`, `partial`, or `unanswered`.
-- **Deeper (optional)** — one link (paper section, engineering post, source file), only if you fetched it and it's on point.
+**Further reading** is part of every lesson: 1–3 links, ordered from most approachable to deepest (e.g. engineering blog → paper section → engine source file). Daniel reads them when he has time and skips them when he doesn't, so the label must let him triage at a glance: what it adds and roughly how long it takes (`blog · 10 min`, `paper §3 · 30 min`, `source · vllm/v1/core/sched/`). Only links you fetched this turn and confirmed cover the concept — no links from memory. Prefer the canonical source (the original paper's relevant section, official engine docs or code) plus one approachable explainer. If nothing verifies, omit the section rather than pad it.
+
+Optional addition — **Recall**: every 4th lesson or so, add one line with a question from an earlier lesson, preferring one he got `wrong`, `partial`, or `unanswered`.
 
 If a concept won't fit in 550 words without turning into jargon, split it into two syllabus lessons and teach the first half today.
 
