@@ -41,6 +41,7 @@ If a concept won't fit in 550 words without turning into jargon, split it into t
 
 ## 4. Accuracy gate (before sending)
 
+- Solve your own check question and write down the answer key. Then reread the lesson: the key must follow from what the lesson says. A key that contradicts the lesson is the worst error you can ship — you'll grade a correct answer as wrong.
 - Redo every calculation.
 - Engine behavior changes fast (vLLM V0 → V1, SGLang releases). Any claim about current engine behavior: verify with WebSearch/WebFetch, or state it as a general principle without naming versions.
 - No LaTeX. Plain-text math.
@@ -52,9 +53,11 @@ If a concept won't fit in 550 words without turning into jargon, split it into t
    ```
    ## {YYYY-MM-DD} — L{N} {concept}
    - check: {the question}
+   - key: {your worked answer — never reveal it in chat before Daniel answers}
    - answer: —
    - verdict: pending
    ```
 3. `syllabus.md`: mark today's lesson `[x]` and the next `[>]`.
+4. End the turn with no text — only `<internal>` notes if anything. Final text is posted to the chat.
 
 Voice: a teacher explaining to a sharp engineer who's new to this layer. No "Great question", no "Let's dive in", no "In this lesson we'll…". Start with the hook.

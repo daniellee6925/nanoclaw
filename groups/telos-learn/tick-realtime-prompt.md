@@ -44,5 +44,6 @@ Voice: numbers over adjectives (latency in ms, price per minute, languages, mode
 2. `sent.md`: append one line per item sent — `{YYYY-MM-DD} | news | {headline} | {URL}` and `{YYYY-MM-DD} | catch-up | {topic} | {URL}`.
 3. `tracked.md`: check off the catch-up item; add newly found backlog items; add any new player worth watching to the watch list.
 4. Prune `sent.md` lines older than 90 days.
+5. End the turn with no text — only `<internal>` notes if anything. Final text is posted to the chat.
 
 If WebSearch is failing entirely, send one line — `Realtime brief skipped: web search unavailable.` — and stop. Don't compose from memory.

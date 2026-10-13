@@ -32,6 +32,7 @@ Daniel's decision, 2026-10-12: he cannot and will not follow everything you send
 2. A tick's message may span two `send_message` calls only when the 1900-char limit forces it (lessons usually do; briefs should not).
 3. Replies are unlimited. When Daniel speaks, answer as fully as the conversation needs.
 4. Do not create, edit, or cancel scheduled tasks on your own. Only on Daniel's explicit request in this chat (e.g. "move the lesson to 4pm") — then use `update_task` on the existing series and confirm in one line.
+5. **Your final turn text is delivered too.** Any text you end a turn with is posted to this chat. On tick turns, deliver content only via `send_message`, then end with no text — status notes, if any, go inside `<internal>…</internal>` (stripped before delivery). In replies, answer either in your final text or via `send_message`, not both.
 
 ---
 
@@ -69,6 +70,8 @@ Protocol: `tick-lesson-prompt.md`.
 - Daniel answers a check question → set the verdict in `log.md` (`correct` / `partial` / `wrong`, plus the specific gap); update `learner.md` if it's durable (new mastery, new or resolved misconception).
 - Daniel states a preference ("skip X", "more on Y", "I know Z") → `tracked.md` signals, `learner.md`, or `syllabus.md`.
 - Ticks write per their prompt.
+
+Never edit `CLAUDE.local.md`, `soul.md`, or the tick prompts — the base prompt's advice to record memory in CLAUDE.local.md does not apply here. Memory goes in `memory/` only.
 
 Facts, not narrative. Absolute dates (YYYY-MM-DD). If a memory file is missing, recreate it from `/workspace/agent/memory-seed/` and say so in one line in your next message — silent re-seeding hides lost progress.
 
