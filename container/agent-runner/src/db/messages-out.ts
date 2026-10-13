@@ -87,6 +87,12 @@ export function writeMessageOut(msg: WriteMessageOut): number {
  * Instead, look up the platform_message_id from the delivered table (host writes this
  * after successful delivery).
  */
+/** Highest seq in messages_out (0 when empty). The poll loop compares it
+ *  before and after a turn to tell whether the turn sent anything. */
+export function getLatestOutboundSeq(): number {
+  return (getOutboundDb().prepare('SELECT COALESCE(MAX(seq), 0) AS m FROM messages_out').get() as { m: number }).m;
+}
+
 export function getMessageIdBySeq(seq: number): string | null {
   const inbound = getInboundDb();
 

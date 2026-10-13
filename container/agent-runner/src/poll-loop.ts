@@ -1,6 +1,6 @@
 import { findByName, getAllDestinations, type DestinationEntry } from './destinations.js';
 import { getPendingMessages, markProcessing, markCompleted, type MessageInRow } from './db/messages-in.js';
-import { writeMessageOut } from './db/messages-out.js';
+import { getLatestOutboundSeq, writeMessageOut } from './db/messages-out.js';
 import { touchHeartbeat, clearStaleProcessingAcks } from './db/connection.js';
 import {
   clearContinuation,
@@ -33,6 +33,18 @@ export interface PollLoopConfig {
   systemContext?: {
     instructions?: string;
   };
+  /**
+   * Stops the loop: runPollLoop aborts the in-flight query and returns.
+   * Production runs without one (the container lives until it's killed);
+   * tests use it to tear down before closing the session DBs.
+   */
+  signal?: AbortSignal;
+}
+
+// A chat message that wakes the agent is owed a reply; accumulated context
+// (trigger=0) and scheduled tasks are not.
+function isTriggeringChat(m: MessageInRow): boolean {
+  return (m.kind === 'chat' || m.kind === 'chat-sdk') && m.trigger === 1;
 }
 
 /**
@@ -62,7 +74,7 @@ export async function runPollLoop(config: PollLoopConfig): Promise<void> {
   clearStaleProcessingAcks();
 
   let pollCount = 0;
-  while (true) {
+  while (!config.signal?.aborted) {
     // Skip system messages — they're responses for MCP tools (e.g., ask_user_question)
     const messages = getPendingMessages().filter((m) => m.kind !== 'system');
     pollCount++;
@@ -171,7 +183,8 @@ export async function runPollLoop(config: PollLoopConfig): Promise<void> {
     const skippedSet = new Set(skipped);
     const processingIds = ids.filter((id) => !commandIds.includes(id) && !skippedSet.has(id));
     try {
-      const result = await processQuery(query, routing, processingIds, config.providerName);
+      const chatIds = keep.filter(isTriggeringChat).map((m) => m.id);
+      const result = await processQuery(query, routing, processingIds, config.providerName, chatIds, config.signal);
       if (result.continuation && result.continuation !== continuation) {
         continuation = result.continuation;
         setContinuation(config.providerName, continuation);
@@ -250,9 +263,23 @@ async function processQuery(
   routing: RoutingContext,
   initialBatchIds: string[],
   providerName: string,
+  initialChatIds: string[],
+  signal?: AbortSignal,
 ): Promise<QueryResult> {
   let queryContinuation: string | undefined;
   let done = false;
+
+  const onAbort = (): void => query.abort();
+  signal?.addEventListener('abort', onAbort, { once: true });
+  if (signal?.aborted) query.abort();
+
+  // Chat messages this turn still owes a reply, and the outbound high-water
+  // mark when the turn began. Only a turn's final text and send_message calls
+  // reach the user — a reply written before a tool call is silently dropped —
+  // so a chat turn that ends with no new outbound row is logged as WARN:
+  // (promoted to the host's error log, see containerLogLevel in container-runner.ts).
+  let awaitingReply = [...initialChatIds];
+  let outboundMark = getLatestOutboundSeq();
 
   // Concurrent polling: push follow-ups into the active query as they arrive.
   // We do NOT force-end the stream on silence — keeping the query open is
@@ -295,6 +322,7 @@ async function processQuery(
         }
       }
 
+      awaitingReply.push(...newMessages.filter(isTriggeringChat).map((m) => m.id));
       const prompt = formatMessages(newMessages);
       log(`Pushing ${newMessages.length} follow-up message(s) into active query`);
       query.push(prompt);
@@ -328,11 +356,18 @@ async function processQuery(
         if (event.text) {
           dispatchResultText(event.text, routing);
         }
+        const latest = getLatestOutboundSeq();
+        if (awaitingReply.length > 0 && latest === outboundMark) {
+          log(`WARN: turn ended with no outbound message for chat ${awaitingReply.join(', ')} — text written before or between tool calls is not delivered`);
+        }
+        awaitingReply = [];
+        outboundMark = latest;
       }
     }
   } finally {
     done = true;
     clearInterval(pollHandle);
+    signal?.removeEventListener('abort', onAbort);
   }
 
   return { continuation: queryContinuation };

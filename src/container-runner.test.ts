@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { resolveProviderName } from './container-runner.js';
+import { containerLogLevel, resolveProviderName } from './container-runner.js';
 
 describe('resolveProviderName', () => {
   it('prefers session over group and container.json', () => {
@@ -28,5 +28,18 @@ describe('resolveProviderName', () => {
   it('treats empty string as unset (falls through)', () => {
     expect(resolveProviderName('', 'codex', null)).toBe('codex');
     expect(resolveProviderName(null, '', 'opencode')).toBe('opencode');
+  });
+});
+
+describe('containerLogLevel', () => {
+  it('promotes container WARN: lines so they reach the host error log', () => {
+    expect(
+      containerLogLevel('[poll-loop] WARN: turn ended with no outbound message for chat m1 — text written before…'),
+    ).toBe('warn');
+  });
+
+  it('keeps ordinary container output at debug', () => {
+    expect(containerLogLevel('[poll-loop] Processing 1 message(s), kinds: chat-sdk')).toBe('debug');
+    expect(containerLogLevel('[poll-loop] Result: (empty)')).toBe('debug');
   });
 });

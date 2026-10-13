@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 
 import { initTestSessionDb, closeSessionDb, getInboundDb, getOutboundDb } from './db/connection.js';
 import { getUndeliveredMessages } from './db/messages-out.js';
@@ -17,7 +17,11 @@ beforeEach(() => {
     .run();
 });
 
-afterEach(() => {
+// Every loop a test starts is stopped — and awaited — before the DB closes.
+// Abandoning a running loop let its follow-up poll timer fire after
+// closeSessionDb(), throwing "unable to open database file" between tests.
+afterEach(async () => {
+  await Promise.all(running.splice(0).map((loop) => loop.stop()));
   closeSessionDb();
 });
 
@@ -36,11 +40,10 @@ describe('poll loop integration', () => {
 
     const provider = new MockProvider({}, () => '<message to="discord-test">42</message>');
 
-    const controller = new AbortController();
-    const loopPromise = runPollLoopWithTimeout(provider, controller.signal, 2000);
+    const loop = startLoop(provider, 2000);
 
     await waitFor(() => getUndeliveredMessages().length > 0, 2000);
-    controller.abort();
+    await loop.stop();
 
     const out = getUndeliveredMessages();
     expect(out).toHaveLength(1);
@@ -53,7 +56,6 @@ describe('poll loop integration', () => {
     const pending = getPendingMessages();
     expect(pending).toHaveLength(0);
 
-    await loopPromise.catch(() => {});
   });
 
   it('should process multiple messages in a batch', async () => {
@@ -61,51 +63,114 @@ describe('poll loop integration', () => {
     insertMessage('m2', { sender: 'Bob', text: 'World' });
 
     const provider = new MockProvider({}, () => '<message to="discord-test">Got both messages</message>');
-    const controller = new AbortController();
-    const loopPromise = runPollLoopWithTimeout(provider, controller.signal, 2000);
+    const loop = startLoop(provider, 2000);
 
     await waitFor(() => getUndeliveredMessages().length > 0, 2000);
-    controller.abort();
+    await loop.stop();
 
     const out = getUndeliveredMessages();
     expect(out).toHaveLength(1);
     expect(JSON.parse(out[0].content).text).toBe('Got both messages');
 
-    await loopPromise.catch(() => {});
   });
 
   it('should process messages arriving after loop starts', async () => {
     const provider = new MockProvider({}, () => '<message to="discord-test">Processed</message>');
-    const controller = new AbortController();
-    const loopPromise = runPollLoopWithTimeout(provider, controller.signal, 3000);
+    const loop = startLoop(provider, 3000);
 
     // Insert message after loop has started
     await sleep(200);
     insertMessage('m-late', { sender: 'Charlie', text: 'Late arrival' });
 
     await waitFor(() => getUndeliveredMessages().length > 0, 2000);
-    controller.abort();
+    await loop.stop();
 
     const out = getUndeliveredMessages();
     expect(out.length).toBeGreaterThanOrEqual(1);
 
-    await loopPromise.catch(() => {});
   });
 });
 
-// Helper: run poll loop until aborted or timeout
-async function runPollLoopWithTimeout(provider: MockProvider, signal: AbortSignal, timeoutMs: number): Promise<void> {
-  return Promise.race([
-    runPollLoop({
-      provider,
-      providerName: 'mock',
-      cwd: '/tmp',
-    }),
-    new Promise<void>((_, reject) => {
-      signal.addEventListener('abort', () => reject(new Error('aborted')));
-    }),
-    new Promise<void>((_, reject) => setTimeout(() => reject(new Error('timeout')), timeoutMs)),
-  ]);
+describe('poll loop lifecycle', () => {
+  it('resolves once its signal is aborted, so nothing touches the DB after teardown', async () => {
+    insertMessage('m1', { sender: 'Alice', text: 'Hi' }, { platformId: 'chan-1', channelType: 'discord' });
+    const loop = startLoop(new MockProvider({}, () => 'hello'), 3000);
+    await waitFor(() => getUndeliveredMessages().length > 0, 2000);
+
+    const exited = await Promise.race([loop.stop().then(() => 'exited'), sleep(2500).then(() => 'still running')]);
+    expect(exited).toBe('exited');
+  });
+});
+
+describe('no-reply warning', () => {
+  it('warns when a chat turn ends without any outbound message', async () => {
+    const errors = spyOn(console, 'error');
+    try {
+      insertMessage('m-silent', { sender: 'Daniel', text: '81' }, { platformId: 'chan-1', channelType: 'discord' });
+      // Empty result text: the reply was written before a tool call and dropped.
+      const loop = startLoop(new MockProvider({}, () => ''), 3000);
+
+      const warned = () => errors.mock.calls.some((c) => String(c[0]).includes('WARN:') && String(c[0]).includes('m-silent'));
+      await waitFor(warned, 2000);
+      await loop.stop();
+    } finally {
+      errors.mockRestore();
+    }
+  });
+
+  it('warns for a follow-up pushed into a warm query whose reply is dropped (the 2026-10-13 incident)', async () => {
+    const errors = spyOn(console, 'error');
+    try {
+      insertMessage('m-first', { sender: 'Daniel', text: 'question' }, { platformId: 'chan-1', channelType: 'discord' });
+      // Replies to the first message; returns no text for the follow-up.
+      const loop = startLoop(new MockProvider({}, (prompt) => (prompt.includes('follow-up') ? '' : 'answer')), 3000);
+      await waitFor(() => getUndeliveredMessages().length > 0, 2000);
+
+      insertMessage('m-followup', { sender: 'Daniel', text: 'follow-up' }, { platformId: 'chan-1', channelType: 'discord' });
+      const warnings = () => errors.mock.calls.map((c) => String(c[0])).filter((line) => line.includes('WARN:'));
+      await waitFor(() => warnings().some((line) => line.includes('m-followup')), 2000);
+      expect(warnings().some((line) => line.includes('m-first'))).toBe(false);
+      await loop.stop();
+    } finally {
+      errors.mockRestore();
+    }
+  });
+
+  it('does not warn when the turn delivers a reply', async () => {
+    const errors = spyOn(console, 'error');
+    try {
+      insertMessage('m-ok', { sender: 'Daniel', text: '80' }, { platformId: 'chan-1', channelType: 'discord' });
+      const loop = startLoop(new MockProvider({}, () => 'Correct.'), 3000);
+
+      await waitFor(() => getUndeliveredMessages().length > 0, 2000);
+      await sleep(100);
+      await loop.stop();
+      expect(errors.mock.calls.some((c) => String(c[0]).includes('WARN:'))).toBe(false);
+    } finally {
+      errors.mockRestore();
+    }
+  });
+});
+
+interface RunningLoop {
+  stop(): Promise<void>;
+}
+const running: RunningLoop[] = [];
+
+// Start the real poll loop with an abort signal. stop() aborts and waits for
+// runPollLoop to actually return; timeoutMs is a safety net for hung tests.
+function startLoop(provider: MockProvider, timeoutMs: number): RunningLoop {
+  const controller = new AbortController();
+  const safety = setTimeout(() => controller.abort(), timeoutMs);
+  const done = runPollLoop({ provider, providerName: 'mock', cwd: '/tmp', signal: controller.signal }).finally(() => clearTimeout(safety));
+  const loop = {
+    stop: async () => {
+      controller.abort();
+      await done;
+    },
+  };
+  running.push(loop);
+  return loop;
 }
 
 async function waitFor(condition: () => boolean, timeoutMs: number): Promise<void> {

@@ -148,10 +148,11 @@ async function spawnContainer(session: Session): Promise<void> {
   activeContainers.set(session.id, { process: container, containerName });
   markContainerRunning(session.id);
 
-  // Log stderr
+  // Log stderr — debug by default; lines the agent-runner marks `WARN:` are
+  // promoted so they reach logs/nanoclaw.error.log (see containerLogLevel).
   container.stderr?.on('data', (data) => {
     for (const line of data.toString().trim().split('\n')) {
-      if (line) log.debug(line, { container: agentGroup.folder });
+      if (line) log[containerLogLevel(line)](line, { container: agentGroup.folder });
     }
   });
 
@@ -202,6 +203,16 @@ export function killContainer(sessionId: string, reason: string): void {
  *
  * Pure so the precedence can be unit-tested without a DB or filesystem.
  */
+/**
+ * Host log level for one line of container stderr. Container output is debug
+ * noise by default; the agent-runner prefixes operator-relevant problems with
+ * `WARN:` (e.g. a chat turn that delivered nothing — poll-loop.ts), and those
+ * must survive the default info threshold.
+ */
+export function containerLogLevel(line: string): 'warn' | 'debug' {
+  return line.includes('WARN:') ? 'warn' : 'debug';
+}
+
 export function resolveProviderName(
   sessionProvider: string | null | undefined,
   agentGroupProvider: string | null | undefined,
