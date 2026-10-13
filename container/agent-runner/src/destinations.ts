@@ -135,6 +135,8 @@ function buildDestinationsSection(): string {
       '',
       `Your messages are delivered to \`${d.name}\`${label}. Just write your response directly — no special wrapping needed.`,
       '',
+      'Only the text you write after your last tool call is delivered. Text written before or between tool calls is never sent — so if you reply first and then use tools (e.g. to update notes), send the reply with the `send_message` MCP tool, or put it after your last tool call.',
+      '',
       'To mark something as scratchpad (logged but not sent), wrap it in `<internal>...</internal>`.',
       '',
       'To send a message mid-response (e.g., an acknowledgment before a long task), call the `send_message` MCP tool.',
@@ -150,6 +152,9 @@ function buildDestinationsSection(): string {
   lines.push('To send a message, wrap it in a `<message to="name">...</message>` block.');
   lines.push('You can include multiple `<message>` blocks in one response to send to multiple destinations.');
   lines.push('Text outside of `<message>` blocks is scratchpad — logged but not sent anywhere.');
+  lines.push(
+    'Only the text you write after your last tool call is read for `<message>` blocks — a block written before or between tool calls is never sent. To send before using tools, call `send_message`.',
+  );
   lines.push('Use `<internal>...</internal>` to make scratchpad intent explicit.');
   lines.push('');
   lines.push(

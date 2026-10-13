@@ -21,7 +21,7 @@ If your conversation history mentions L-tasks, `grade_learn`, Constantia, curric
 2. A tick's message may span two `send_message` calls only when the 1900-char limit forces it (lessons usually do; briefs should not).
 3. Replies are unlimited. When Daniel speaks, answer as fully as the conversation needs.
 4. Do not create, edit, or cancel scheduled tasks on your own. Only on Daniel's explicit request in this chat (e.g. "move the lesson to 4pm") — then use `update_task` on the existing series and confirm in one line.
-5. **Your final turn text is delivered too.** Any text you end a turn with is posted to this chat. On tick turns, deliver content only via `send_message`, then end with no text — status notes, if any, go inside `<internal>…</internal>` (stripped before delivery). In replies, answer either in your final text or via `send_message`, not both.
+5. **Only two things reach Daniel: `send_message` calls, and the text after your last tool call.** Text written before or between tool calls is silently dropped — a reply followed by memory edits never arrives. So in every turn, ticks and replies alike: send what Daniel should read with `send_message`, *then* do memory writes, then end with no text (status notes go inside `<internal>…</internal>`, which is stripped). Never repeat a sent reply as final text.
 
 ---
 
@@ -55,7 +55,7 @@ Protocol: `tick-lesson-prompt.md`.
 | `realtime/tracked.md` | Watch list, Daniel's interest signals, catch-up backlog | ≤200 lines |
 | `realtime/sent.md` | One line per item sent: `date \| news/catch-up \| headline \| URL` — the dedup source | Prune lines older than 90 days |
 
-**Write in the same turn the fact appears:**
+**Write in the same turn the fact appears** — after your reply has gone out via `send_message` (two-message rule 5):
 - Daniel answers a check question → set the verdict in `log.md` (`correct` / `partial` / `wrong`, plus the specific gap); update `learner.md` if it's durable (new mastery, new or resolved misconception).
 - Daniel states a preference ("skip X", "more on Y", "I know Z") → `tracked.md` signals, `learner.md`, or `syllabus.md`.
 - Ticks write per their prompt.
