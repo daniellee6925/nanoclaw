@@ -1,66 +1,75 @@
+import { createDiscordAdapter } from '@chat-adapter/discord';
 import { describe, expect, it } from 'vitest';
 
-import { bareDiscordLinks } from './format-links.js';
+import { renderDiscordLink, useBareDiscordLinks } from './format-links.js';
 
-describe('bareDiscordLinks', () => {
-  it('rewrites a masked link to "label: url"', () => {
-    expect(bareDiscordLinks('see [the PR](https://github.com/x/y/pull/1) now')).toBe(
-      'see the PR: https://github.com/x/y/pull/1 now',
+// Render exactly as postMessage does — the adapter's own formatConverter
+// .renderPostable({ markdown }). Testing a string transform in isolation is the
+// seam that hid this bug: the adapter re-parses the text and re-wraps links.
+function discordRender(markdown: string): string {
+  const adapter = createDiscordAdapter({ botToken: 'test', publicKey: '0'.repeat(64), applicationId: '1' });
+  expect(useBareDiscordLinks(adapter)).toBe(true);
+  const { formatConverter } = adapter as unknown as {
+    formatConverter: { renderPostable(message: { markdown: string }): string };
+  };
+  return formatConverter.renderPostable({ markdown });
+}
+
+describe('Discord outbound links (adapter render path)', () => {
+  it('keeps a bare URL bare instead of re-wrapping it as [url](url)', () => {
+    expect(discordRender('see https://example.com/a-b today')).toBe('see https://example.com/a-b today');
+  });
+
+  it('renders a masked link as "label: url"', () => {
+    expect(discordRender('read [the post](https://example.com/p) now')).toBe(
+      'read the post: https://example.com/p now',
     );
   });
 
-  it('emits a bare url when the label is empty', () => {
-    expect(bareDiscordLinks('[](https://example.com)')).toBe('https://example.com');
+  it('leaves an @ inside a URL alone (no <@mention> rewrite)', () => {
+    expect(discordRender('by https://medium.com/@user/post')).toBe('by https://medium.com/@user/post');
   });
 
-  it('emits a bare url when the label already equals the url', () => {
-    expect(bareDiscordLinks('[https://example.com](https://example.com)')).toBe('https://example.com');
+  it('keeps an image link as "alt: url" instead of dropping it', () => {
+    expect(discordRender('![chart](https://example.com/c.png)')).toBe('chart: https://example.com/c.png');
   });
 
-  it('strips the leading "!" of an image link', () => {
-    expect(bareDiscordLinks('![chart](https://example.com/c.png)')).toBe('chart: https://example.com/c.png');
+  it('leaves URLs inside code spans untouched', () => {
+    expect(discordRender('code `https://x.com` here')).toBe('code `https://x.com` here');
   });
 
-  it('rewrites multiple links in one string', () => {
-    expect(bareDiscordLinks('[a](https://a.com) and [b](https://b.com)')).toBe('a: https://a.com and b: https://b.com');
+  it('leaves URLs inside fenced code blocks untouched', () => {
+    expect(discordRender('```\ncurl https://x.com/api\n```')).toBe('```\ncurl https://x.com/api\n```');
   });
 
-  it('leaves already-bare urls untouched', () => {
-    expect(bareDiscordLinks('visit https://example.com today')).toBe('visit https://example.com today');
+  it('unwraps every link in one message', () => {
+    expect(discordRender('[a](https://a.com) and https://b.com')).toBe('a: https://a.com and https://b.com');
   });
 
-  it('ignores non-http targets (anchors, relative, numeric)', () => {
-    expect(bareDiscordLinks('[ref](#section)')).toBe('[ref](#section)');
-    expect(bareDiscordLinks('[note](./doc.md)')).toBe('[note](./doc.md)');
-    expect(bareDiscordLinks('arr[0](1)')).toBe('arr[0](1)');
+  it('keeps surrounding formatting while unwrapping the link', () => {
+    const out = discordRender('**Catch up:** **Topic** — two sentences. https://example.com/post');
+    expect(out).toBe('**Catch up:** **Topic** — two sentences. https://example.com/post');
+    expect(out).not.toContain('](');
+  });
+});
+
+describe('renderDiscordLink', () => {
+  it('emits the bare url when the label is empty or is the url itself', () => {
+    expect(renderDiscordLink('', 'https://a.com')).toBe('https://a.com');
+    expect(renderDiscordLink('https://a.com', 'https://a.com')).toBe('https://a.com');
   });
 
-  it('does not touch a link inside an inline code span', () => {
-    expect(bareDiscordLinks('use `[x](https://y.com)` literally')).toBe('use `[x](https://y.com)` literally');
+  it('emits the full url for a scheme-less autolink label', () => {
+    expect(renderDiscordLink('www.a.com', 'http://www.a.com')).toBe('http://www.a.com');
   });
 
-  it('does not touch a link inside a fenced code block', () => {
-    const input = 'before\n```\n[x](https://y.com)\n```\nafter';
-    expect(bareDiscordLinks(input)).toBe(input);
+  it('emits the plain address for mailto links', () => {
+    expect(renderDiscordLink('me@a.com', 'mailto:me@a.com')).toBe('me@a.com');
   });
 
-  it('rewrites a link outside code while preserving a link inside code', () => {
-    expect(bareDiscordLinks('[real](https://r.com) but `[fake](https://f.com)`')).toBe(
-      'real: https://r.com but `[fake](https://f.com)`',
+  it('labels a link whose text differs from its url', () => {
+    expect(renderDiscordLink(' the PR ', 'https://github.com/x/y/pull/1')).toBe(
+      'the PR: https://github.com/x/y/pull/1',
     );
-  });
-
-  it('returns text with no masked links unchanged (fast path)', () => {
-    expect(bareDiscordLinks('plain text, no links here')).toBe('plain text, no links here');
-  });
-
-  it('handles empty string', () => {
-    expect(bareDiscordLinks('')).toBe('');
-  });
-
-  it('is idempotent — running twice equals running once', () => {
-    const input = 'see [the PR](https://github.com/x/y/pull/1) and `[code](https://c.com)`';
-    const once = bareDiscordLinks(input);
-    expect(bareDiscordLinks(once)).toBe(once);
   });
 });

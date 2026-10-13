@@ -1,71 +1,65 @@
 /**
- * format-links.ts — Discord outbound link sanitizer.
+ * format-links.ts — make links in Discord bot messages clickable.
  *
- * Discord does not render Markdown masked links (`[text](url)`) in normal bot
- * messages — only inside embeds — so Telos's briefs and replies show the link
- * as literal, non-clickable text and Daniel has to copy-paste the URL by hand.
- * Discord DOES auto-link bare URLs (`https://…`) in plain messages.
+ * Calling spec:
+ *   renderDiscordLink(label, url) → string
+ *     Pure. How one link should read in a plain Discord message: the bare URL
+ *     for autolinks, `label: url` otherwise, the plain address for mailto.
+ *   useBareDiscordLinks(adapter) → boolean
+ *     Side effect: patches the adapter's link-node rendering so every outbound
+ *     message (post and edit) uses renderDiscordLink. Returns false — patching
+ *     nothing — if the adapter's internals no longer match.
  *
- * `bareDiscordLinks` rewrites `[text](url)` → `text: url` (or a bare `url` when
- * the label is empty or already equals the URL) so the link becomes clickable.
- * It's wired as the Discord channel's `transformOutboundText`, which the
- * chat-sdk bridge applies to all outbound text before delivery.
+ * Why: the Chat SDK Discord adapter renders outbound `{ markdown }` by parsing
+ * it (GFM, which autolinks bare URLs) and re-serializing every link node as a
+ * masked link `[text](url)`. Discord does not render masked links in plain bot
+ * messages — and never renders one whose label is itself a URL — so every link
+ * arrived as dead text and Daniel had to copy URLs by hand. Discord DOES
+ * auto-link bare `https://…` URLs, so link nodes are rendered as bare or
+ * labelled URLs instead.
  *
- * Discord-specific by design: Slack uses `<url|text>` syntax and Telegram
- * renders Markdown links natively, so neither needs (or wants) this rewrite.
+ * This has to happen at the AST → Discord step. The first fix for issue #3
+ * rewrote the markdown string before posting; the adapter re-parsed it and
+ * wrapped the now-bare URLs right back into `[url](url)`.
  *
- * See nanoclaw issue #3.
+ * Relies on adapter internals (`formatConverter`, `nodeToDiscordMarkdown`) of
+ * the pinned @chat-adapter/discord version. format-links.test.ts renders
+ * through a real adapter instance, so an upgrade that moves them fails there.
  */
+import { DiscordFormatConverter, type createDiscordAdapter } from '@chat-adapter/discord';
+import { getNodeChildren, isLinkNode } from 'chat';
 
-// Markdown link or image: an optional leading "!" (image), then [label](url)
-// where the target is an http(s) URL. Restricting the target to http(s) is
-// deliberate — it matches exactly the case Discord would auto-link as a bare
-// URL, and avoids mangling non-link bracket/paren sequences like "[0](1)" or
-// anchor links like "[ref](#section)".
-//
-// Known limitation: the URL group stops at the first ")", so a URL containing
-// balanced parens (e.g. a Wikipedia "..._(disambiguation)" link) loses its
-// trailing paren. This is the standard regex-Markdown tradeoff and is rare in
-// Telos's actual output (PRs, dashboards, issue links); punted per the issue.
-const MD_LINK_RE = /!?\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g;
+type MdNode = Parameters<typeof getNodeChildren>[0];
+type NodeRenderer = (node: MdNode) => string;
 
-// Code spans must be left untouched — a URL inside an inline `code` span or a
-// ``` fenced block is content, not a link to surface. Fenced blocks come first
-// in the alternation so triple-backticks are consumed before the single-
-// backtick inline form.
-const CODE_SPAN_RE = /```[\s\S]*?```|`[^`]*`/g;
-
-function rewriteLinks(segment: string): string {
-  return segment.replace(MD_LINK_RE, (_match, label: string, url: string) => {
-    const trimmed = label.trim();
-    if (!trimmed || trimmed === url) return url;
-    return `${trimmed}: ${url}`;
-  });
+export function renderDiscordLink(label: string, url: string): string {
+  if (url.startsWith('mailto:')) return url.slice('mailto:'.length);
+  const text = label.trim();
+  // Autolinks: the label is the URL itself, or a scheme-less "www.x" for "http://www.x".
+  if (!text || text === url || url.endsWith(`://${text}`)) return url;
+  return `${text}: ${url}`;
 }
 
-/**
- * Rewrite Markdown masked links to bare/labelled URLs that Discord auto-links,
- * leaving code spans (inline and fenced) untouched. Idempotent on text that
- * has no masked links — returns it unchanged with no allocation.
- */
-export function bareDiscordLinks(text: string): string {
-  if (!text) return text;
-  // Fast path: "](" is a necessary substring of any masked link. If it's
-  // absent, there's nothing to rewrite — skip the code-span walk entirely.
-  if (!text.includes('](')) return text;
+// Label as written, without the adapter's text-node rewrites (e.g. "@user" →
+// "<@user>"), so an autolinked URL containing "@" is still recognized as one.
+function plainText(node: MdNode): string {
+  if ('value' in node && typeof node.value === 'string') return node.value;
+  return getNodeChildren(node).map(plainText).join('');
+}
 
-  let result = '';
-  let lastIndex = 0;
-  CODE_SPAN_RE.lastIndex = 0;
-  let match: RegExpExecArray | null;
-  while ((match = CODE_SPAN_RE.exec(text)) !== null) {
-    // Rewrite the non-code text preceding this code span, then append the
-    // code span verbatim so anything inside it is preserved exactly.
-    result += rewriteLinks(text.slice(lastIndex, match.index));
-    result += match[0];
-    lastIndex = match.index + match[0].length;
-  }
-  // Rewrite the trailing non-code remainder.
-  result += rewriteLinks(text.slice(lastIndex));
-  return result;
+export function useBareDiscordLinks(adapter: ReturnType<typeof createDiscordAdapter>): boolean {
+  const converter = (adapter as unknown as { formatConverter?: unknown }).formatConverter;
+  if (!(converter instanceof DiscordFormatConverter)) return false;
+  const target = converter as unknown as { nodeToDiscordMarkdown?: NodeRenderer };
+  if (typeof target.nodeToDiscordMarkdown !== 'function') return false;
+
+  const base = target.nodeToDiscordMarkdown.bind(converter);
+  // Assigned on the instance so the converter's own recursive calls
+  // (`this.nodeToDiscordMarkdown(child)`) also route through it.
+  target.nodeToDiscordMarkdown = (node) => {
+    if (isLinkNode(node)) return renderDiscordLink(plainText(node), node.url);
+    if (node.type === 'image') return renderDiscordLink(node.alt ?? '', node.url);
+    return base(node);
+  };
+  return true;
 }
