@@ -152,6 +152,69 @@ describe('no-reply warning', () => {
   });
 });
 
+describe('reply fallback', () => {
+  const texts = () => getUndeliveredMessages().map((m) => JSON.parse(m.content).text as string);
+
+  it('delivers the last reply text when a chat turn would otherwise send nothing (2026-10-13 incident)', async () => {
+    const errors = spyOn(console, 'error');
+    try {
+      insertMessage('m-answer', { sender: 'Daniel', text: 'lower temp, tiny nucleus' }, { platformId: 'chan-1', channelType: 'discord' });
+      // Reply written, then memory edits (tool calls), then only an internal note.
+      const loop = startLoop(
+        new MockProvider({}, () => ({ texts: ['Mechanism right. The randomness claim is wrong.'], result: '<internal>verdict logged</internal>' })),
+        3000,
+      );
+      await waitFor(() => texts().length > 0, 2000);
+      await sleep(100);
+      await loop.stop();
+
+      expect(texts()).toEqual(['Mechanism right. The randomness claim is wrong.']);
+      expect(errors.mock.calls.some((c) => String(c[0]).includes('WARN:') && String(c[0]).includes('fallback'))).toBe(true);
+    } finally {
+      errors.mockRestore();
+    }
+  });
+
+  it('uses the last text block, not an earlier one', async () => {
+    insertMessage('m-81', { sender: 'Daniel', text: '81' }, { platformId: 'chan-1', channelType: 'discord' });
+    const loop = startLoop(new MockProvider({}, () => ({ texts: ['81 is right.', 'Correction: it is 80.'], result: '' })), 3000);
+    await waitFor(() => texts().length > 0, 2000);
+    await sleep(100);
+    await loop.stop();
+    expect(texts()).toEqual(['Correction: it is 80.']);
+  });
+
+  it('sends no fallback when the final text was delivered', async () => {
+    insertMessage('m-ok', { sender: 'Daniel', text: 'q' }, { platformId: 'chan-1', channelType: 'discord' });
+    const loop = startLoop(new MockProvider({}, () => ({ texts: ['scratch thought'], result: 'Final answer.' })), 3000);
+    await waitFor(() => texts().length > 0, 2000);
+    await sleep(100);
+    await loop.stop();
+    expect(texts()).toEqual(['Final answer.']);
+  });
+
+  it('never sends a fallback for a scheduled task turn', async () => {
+    getInboundDb()
+      .prepare(
+        `INSERT INTO messages_in (id, kind, timestamp, status, platform_id, channel_type, thread_id, content)
+         VALUES ('t-tick', 'task', datetime('now'), 'pending', 'chan-1', 'discord', NULL, ?)`,
+      )
+      .run(JSON.stringify({ prompt: 'run the tick', script: null }));
+    let seen = false;
+    const loop = startLoop(
+      new MockProvider({}, () => {
+        seen = true;
+        return { texts: ['tick scratch work'], result: '<internal>done</internal>' };
+      }),
+      3000,
+    );
+    await waitFor(() => seen, 2000);
+    await sleep(150);
+    await loop.stop();
+    expect(texts()).toEqual([]);
+  });
+});
+
 interface RunningLoop {
   stop(): Promise<void>;
 }

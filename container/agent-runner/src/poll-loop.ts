@@ -273,13 +273,16 @@ async function processQuery(
   signal?.addEventListener('abort', onAbort, { once: true });
   if (signal?.aborted) query.abort();
 
-  // Chat messages this turn still owes a reply, and the outbound high-water
-  // mark when the turn began. Only a turn's final text and send_message calls
-  // reach the user — a reply written before a tool call is silently dropped —
-  // so a chat turn that ends with no new outbound row is logged as WARN:
-  // (promoted to the host's error log, see containerLogLevel in container-runner.ts).
+  // Chat messages this turn still owes a reply, the outbound high-water mark
+  // when the turn began, and the last text the agent wrote this turn. Only a
+  // turn's final text and send_message calls reach the user, so a reply
+  // written before a tool call (e.g. reply, then memory edits) is dropped.
+  // When a chat turn ends with no new outbound row, the last text is
+  // delivered as a fallback and the turn is logged as WARN: (promoted to the
+  // host's error log, see containerLogLevel in container-runner.ts).
   let awaitingReply = [...initialChatIds];
   let outboundMark = getLatestOutboundSeq();
+  let lastText = '';
 
   // Concurrent polling: push follow-ups into the active query as they arrive.
   // We do NOT force-end the stream on silence — keeping the query open is
@@ -345,6 +348,9 @@ async function processQuery(
         // effectively orphaned and the next message started a blank
         // Claude session with no prior context.
         setContinuation(providerName, event.continuation);
+      } else if (event.type === 'text') {
+        const cleaned = stripInternalTags(event.text);
+        if (cleaned) lastText = cleaned;
       } else if (event.type === 'result') {
         // A result — with or without text — means the turn is done. Mark
         // the initial batch completed now so the host sweep doesn't see
@@ -356,12 +362,19 @@ async function processQuery(
         if (event.text) {
           dispatchResultText(event.text, routing);
         }
-        const latest = getLatestOutboundSeq();
-        if (awaitingReply.length > 0 && latest === outboundMark) {
-          log(`WARN: turn ended with no outbound message for chat ${awaitingReply.join(', ')} — text written before or between tool calls is not delivered`);
+        if (awaitingReply.length > 0 && getLatestOutboundSeq() === outboundMark) {
+          if (lastText) dispatchResultText(lastText, routing);
+          const outcome =
+            getLatestOutboundSeq() !== outboundMark
+              ? 'delivered the last text it wrote as a fallback'
+              : lastText
+                ? 'fallback text could not be routed'
+                : 'it wrote no text to fall back on';
+          log(`WARN: turn ended with no outbound message for chat ${awaitingReply.join(', ')} — ${outcome}`);
         }
         awaitingReply = [];
-        outboundMark = latest;
+        lastText = '';
+        outboundMark = getLatestOutboundSeq();
       }
     }
   } finally {

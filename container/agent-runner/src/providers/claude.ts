@@ -108,6 +108,25 @@ interface ParsedMessage {
   content: string;
 }
 
+/**
+ * Text of a top-level assistant message, joined across its text blocks
+ * (tool calls and thinking skipped). Subagent messages (parent_tool_use_id
+ * set) return '' — their text was never addressed to the user. Feeds the
+ * poll loop's reply fallback via `text` events.
+ */
+export function assistantText(message: unknown): string {
+  const m = message as {
+    type?: string;
+    parent_tool_use_id?: string | null;
+    message?: { content?: Array<{ type?: string; text?: string }> };
+  };
+  if (m.type !== 'assistant' || m.parent_tool_use_id) return '';
+  return (m.message?.content ?? [])
+    .filter((block) => block.type === 'text' && block.text)
+    .map((block) => block.text as string)
+    .join('\n\n');
+}
+
 function parseTranscript(content: string): ParsedMessage[] {
   const messages: ParsedMessage[] = [];
   for (const line of content.split('\n')) {
@@ -302,6 +321,9 @@ export class ClaudeProvider implements AgentProvider {
 
         if (message.type === 'system' && message.subtype === 'init') {
           yield { type: 'init', continuation: message.session_id };
+        } else if (message.type === 'assistant') {
+          const text = assistantText(message);
+          if (text) yield { type: 'text', text };
         } else if (message.type === 'result') {
           const text = 'result' in message ? (message as { result?: string }).result ?? null : null;
           yield { type: 'result', text };

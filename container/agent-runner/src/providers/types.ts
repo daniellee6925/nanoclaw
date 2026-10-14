@@ -75,6 +75,14 @@ export type ProviderEvent =
   | { type: 'error'; message: string; retryable: boolean; classification?: string }
   | { type: 'progress'; message: string }
   /**
+   * A text block the agent wrote mid-turn (before or between tool calls).
+   * Not delivered on its own — only the final `result` text is. The poll loop
+   * keeps the last one per turn as a fallback reply for a chat message that
+   * would otherwise get nothing. Optional: providers that never yield it just
+   * get no fallback.
+   */
+  | { type: 'text'; text: string }
+  /**
    * Liveness signal. Providers MUST yield this on every underlying SDK
    * event (tool call, thinking, partial message, anything) so the
    * poll-loop's idle timer stays honest during long tool runs.
